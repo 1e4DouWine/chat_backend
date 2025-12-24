@@ -10,7 +10,7 @@ database:
   dbname: "xxx"
 
 redis:
-  host: "xxx.xxxx"
+  host: "xxx.xxx"
   port: 17767
   username: "xxx"
   password: "xxx"

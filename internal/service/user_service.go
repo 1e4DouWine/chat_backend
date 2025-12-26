@@ -45,18 +45,18 @@ func (s *UserService) GetMe(ctx context.Context, userID string, username string)
 	}, nil
 }
 
-//// GetUserInfo 获取用户资料
-//func (s *UserService) GetUserInfo(c context.Context, userID string) (*dto.UserInfoResponse, error) {
-//	avatarUrl, err := s.GetUserAvatarUrl(c, userID, username)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return &dto.UserInfoResponse{
-//		UserID:   userID,
-//		Username: username,
-//		Avatar:   avatarUrl,
-//	}, nil
-//}
+// GetUserInfo 获取用户资料
+func (s *UserService) GetUserInfo(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
+	avatarUrl, err := s.GetUserAvatarUrl(userID, username)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.UserInfoResponse{
+		UserID:   userID,
+		Username: username,
+		Avatar:   avatarUrl,
+	}, nil
+}
 
 // GetUsernameByUserID 通过 userID 查询 username
 func (s *UserService) GetUsernameByUserID(ctx context.Context, userID string) (string, error) {

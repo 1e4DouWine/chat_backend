@@ -37,6 +37,29 @@ func GetMe(c echo.Context) error {
 	return response.Success(c, userInfoResponse)
 }
 
+// SearchUser 搜索用户
+func SearchUser(c echo.Context) error {
+	ctx := c.Request().Context()
+	username := c.QueryParam("username")
+	if username == "" {
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
+	}
+	if username == c.Get(global.JwtKeyUserName).(string) {
+		return response.Error(c, errors.ErrCodeInvalidRequest, "can not search yourself")
+	}
+	
+	userService := service.NewUserService(database.GetDB())
+	userID, err := userService.GetUserIDByUsername(ctx, username)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeFailedToGetUserInfo, err.Error())
+	}
+	resp, err := userService.GetUserInfo(ctx, userID, username)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeFailedToGetUserInfo, err.Error())
+	}
+	return response.Success(c, resp)
+}
+
 // AddFriend 添加朋友
 func AddFriend(c echo.Context) error {
 	ctx := c.Request().Context()

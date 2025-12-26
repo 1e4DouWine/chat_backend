@@ -2,6 +2,7 @@ package dto
 
 // UserInfoResponse 用户信息响应
 type UserInfoResponse struct {
+	UserID   string `json:"user_id"`
 	Username string `json:"username"`
 	Avatar   string `json:"avatar"`
 }

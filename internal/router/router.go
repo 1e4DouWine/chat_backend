@@ -38,5 +38,8 @@ func userRoutes(api *echo.Group) {
 	user := api.Group("/user")
 	user.Use(middleware.JWTMiddleware())
 	user.GET("/me", v1.GetMe)
+	user.GET("/friend", v1.GetFriendList)
 	user.POST("/friend", v1.AddFriend)
+	user.PUT("/friend/:id", v1.ProcessFriendRequest)
+	user.DELETE("/friend/:id", v1.DeleteFriend)
 }

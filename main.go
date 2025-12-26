@@ -96,6 +96,7 @@ func startServer(cfg *config.Config) {
 	e := echo.New()
 
 	// 添加中间件
+	e.Use(middleware.CORSMiddleware()) // 添加CORS中间件
 	e.Use(middleware.RecoverMiddleware())
 	e.Use(middleware.LoggerMiddleware())
 

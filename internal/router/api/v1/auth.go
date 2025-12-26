@@ -3,9 +3,9 @@ package v1
 import (
 	"chat_backend/internal/database"
 	"chat_backend/internal/dto"
+	"chat_backend/internal/errors"
 	"chat_backend/internal/response"
 	"chat_backend/internal/service"
-	"errors"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -16,15 +16,15 @@ func Register(c echo.Context) error {
 	ctx := c.Request().Context()
 	var req dto.RegisterRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Error(c, 1000, "invalid request format")
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
 	// 基本验证
 	if strings.TrimSpace(req.Username) == "" {
-		return response.Error(c, 1001, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return response.Error(c, 1001, "password is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "password is required")
 	}
 
 	// 获取服务实例
@@ -33,10 +33,10 @@ func Register(c echo.Context) error {
 	// 调用服务层处理业务逻辑
 	authResp, err := authService.Register(ctx, req)
 	if err != nil {
-		if errors.Is(err, service.ErrUsernameAlreadyExists) {
-			return response.Error(c, 5001, "username already exists")
+		if err.Error() == service.ErrUsernameAlreadyExists.Error() {
+			return response.Error(c, errors.ErrCodeUsernameAlreadyExists, errors.GetMessage(errors.ErrCodeUsernameAlreadyExists))
 		}
-		return response.Error(c, 5000, "failed to register user")
+		return response.Error(c, errors.ErrCodeFailedToRegister, errors.GetMessage(errors.ErrCodeFailedToRegister))
 	}
 
 	return response.Success(c, authResp)
@@ -47,15 +47,15 @@ func Login(c echo.Context) error {
 	ctx := c.Request().Context()
 	var req dto.LoginRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Error(c, 1000, "invalid request format")
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
 	// 基本验证
 	if strings.TrimSpace(req.Username) == "" {
-		return response.Error(c, 1001, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return response.Error(c, 1001, "password is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "password is required")
 	}
 
 	// 获取服务实例
@@ -64,10 +64,10 @@ func Login(c echo.Context) error {
 	// 调用服务层处理业务逻辑
 	authResp, err := authService.Login(ctx, req)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidUsernameOrPassword) {
-			return response.Error(c, 2002, "invalid username or password")
+		if err.Error() == service.ErrInvalidUsernameOrPassword.Error() {
+			return response.Error(c, errors.ErrCodeInvalidCredentials, errors.GetMessage(errors.ErrCodeInvalidCredentials))
 		}
-		return response.Error(c, 5000, "failed to login")
+		return response.Error(c, errors.ErrCodeFailedToLogin, errors.GetMessage(errors.ErrCodeFailedToLogin))
 	}
 
 	return response.Success(c, authResp)
@@ -78,12 +78,12 @@ func RefreshToken(c echo.Context) error {
 	ctx := c.Request().Context()
 	var req dto.RefreshRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Error(c, 1000, "invalid request format")
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
 	// 基本验证
 	if strings.TrimSpace(req.RefreshToken) == "" {
-		return response.Error(c, 1001, "refresh_token is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "refresh_token is required")
 	}
 
 	// 获取服务实例
@@ -94,9 +94,9 @@ func RefreshToken(c echo.Context) error {
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid refresh token") ||
 			strings.Contains(err.Error(), "user not found") {
-			return response.Error(c, 2001, "invalid refresh token")
+			return response.Error(c, errors.ErrCodeInvalidRefreshToken, errors.GetMessage(errors.ErrCodeInvalidRefreshToken))
 		}
-		return response.Error(c, 5000, "failed to refresh token")
+		return response.Error(c, errors.ErrCodeFailedToRefreshToken, errors.GetMessage(errors.ErrCodeFailedToRefreshToken))
 	}
 
 	return response.Success(c, authResp)

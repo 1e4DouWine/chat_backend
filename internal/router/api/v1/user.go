@@ -3,10 +3,10 @@ package v1
 import (
 	"chat_backend/internal/database"
 	"chat_backend/internal/dto"
+	"chat_backend/internal/errors"
 	"chat_backend/internal/global"
 	"chat_backend/internal/response"
 	"chat_backend/internal/service"
-	"net/http"
 
 	"github.com/labstack/echo/v4"
 )
@@ -24,14 +24,14 @@ func GetMe(c echo.Context) error {
 	username := c.Get(global.JwtKeyUserName).(string)
 
 	if userID == "" {
-		return response.Error(c, http.StatusBadRequest, "userID is required")
+		return response.Error(c, errors.ErrCodeUserIDRequired, errors.GetMessage(errors.ErrCodeUserIDRequired))
 	}
 
 	userService := service.NewUserService(database.GetDB())
 
 	userInfoResponse, err := userService.GetMe(ctx, userID, username)
 	if err != nil {
-		return response.Error(c, http.StatusInternalServerError, err.Error())
+		return response.Error(c, errors.ErrCodeFailedToGetUserInfo, errors.GetMessage(errors.ErrCodeFailedToGetUserInfo))
 	}
 
 	return response.Success(c, userInfoResponse)
@@ -42,10 +42,10 @@ func AddFriend(c echo.Context) error {
 	ctx := c.Request().Context()
 	var req dto.AddFriendRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Error(c, 1000, "invalid request format")
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 	if req.Username == "" {
-		return response.Error(c, 1000, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -53,12 +53,12 @@ func AddFriend(c echo.Context) error {
 	userService := service.NewUserService(database.GetDB())
 	friendID, err := userService.GetUserIDByUsername(ctx, req.Username)
 	if err != nil {
-		return response.Error(c, 1000, "no user found")
+		return response.Error(c, errors.ErrCodeUserNotFound, errors.GetMessage(errors.ErrCodeUserNotFound))
 	}
 
 	resp, err := userService.AddFriend(ctx, userID, friendID)
 	if err != nil {
-		return response.Error(c, 1000, err.Error())
+		return response.Error(c, errors.ErrCodeFailedToAddFriend, err.Error())
 	}
 	return response.Success(c, resp)
 }
@@ -70,7 +70,7 @@ func GetFriendList(c echo.Context) error {
 	if status == "" {
 		status = service.FriendStatusAccepted
 	} else if status != service.FriendStatusPending && status != service.FriendStatusAccepted {
-		return response.Error(c, 1000, "invalid status parameter")
+		return response.Error(c, errors.ErrCodeInvalidStatus, errors.GetMessage(errors.ErrCodeInvalidStatus))
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -79,7 +79,7 @@ func GetFriendList(c echo.Context) error {
 
 	friendList, err := userService.GetFriendList(ctx, userID, status)
 	if err != nil {
-		return response.Error(c, 1000, err.Error())
+		return response.Error(c, errors.ErrCodeFailedToGetFriendList, errors.GetMessage(errors.ErrCodeFailedToGetFriendList))
 	}
 	return response.Success(c, friendList)
 }
@@ -90,14 +90,14 @@ func ProcessFriendRequest(c echo.Context) error {
 	friendID := c.Param("id")
 	action := c.QueryParam(processFriendRequestParam)
 	if action != service.ActionParamAccept && action != service.ActionParamReject {
-		return response.Error(c, 1000, "invalid action parameter")
+		return response.Error(c, errors.ErrCodeInvalidAction, errors.GetMessage(errors.ErrCodeInvalidAction))
 	}
 	userID := c.Get(global.JwtKeyUserID).(string)
 
 	userService := service.NewUserService(database.GetDB())
 	resp, err := userService.ProcessFriendRequest(ctx, userID, friendID, action)
 	if err != nil {
-		return response.Error(c, 1000, err.Error())
+		return response.Error(c, errors.ErrCodeFailedToProcessRequest, err.Error())
 	}
 	return response.Success(c, resp)
 }
@@ -111,7 +111,7 @@ func DeleteFriend(c echo.Context) error {
 
 	err := userService.DeleteFriend(ctx, userID, friendID)
 	if err != nil {
-		return response.Error(c, 1000, err.Error())
+		return response.Error(c, errors.ErrCodeFailedToDeleteFriend, err.Error())
 	}
 	return response.Success(c, nil)
 }

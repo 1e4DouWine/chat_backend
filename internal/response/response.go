@@ -1,6 +1,7 @@
 package response
 
 import (
+	"chat_backend/internal/errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -16,7 +17,7 @@ type Response struct {
 // Success 成功响应
 func Success(c echo.Context, data interface{}) error {
 	return c.JSON(http.StatusOK, Response{
-		Code:    0,
+		Code:    errors.Success,
 		Message: "success",
 		Data:    data,
 	})
@@ -52,7 +53,7 @@ func getHTTPStatus(code int) int {
 	case code >= 4000 && code < 5000:
 		return http.StatusNotFound
 	case code >= 5000 && code < 6000:
-		return http.StatusConflict
+		return http.StatusInternalServerError
 	default:
 		return http.StatusInternalServerError
 	}

@@ -178,7 +178,7 @@ func (s *UserService) AddFriend(ctx context.Context, userID string, friendID str
 }
 
 // GetFriendList 获取好友列表
-func (s *UserService) GetFriendList(ctx context.Context, userID string, status string) ([]*dto.UserInfoResponse, error) {
+func (s *UserService) GetFriendList(ctx context.Context, userID string, status string) ([]*dto.FriendInfoResponse, error) {
 	q := dao.Use(s.db).Friend
 	do := q.WithContext(ctx)
 
@@ -223,10 +223,10 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 	}
 
 	if len(friends) == 0 {
-		return []*dto.UserInfoResponse{}, nil
+		return []*dto.FriendInfoResponse{}, nil
 	}
 
-	responses := make([]*dto.UserInfoResponse, 0, len(friends))
+	responses := make([]*dto.FriendInfoResponse, 0, len(friends))
 	for _, f := range friends {
 		// 确定对方的 UserID
 		var friendUserID string
@@ -245,10 +245,12 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 			avatarUrl = "unknown"
 		}
 
-		responses = append(responses, &dto.UserInfoResponse{
+		responses = append(responses, &dto.FriendInfoResponse{
 			UserID:   friendUserID,
 			Username: username,
 			Avatar:   avatarUrl,
+			Status:   f.Status,
+			CreateAt: f.CreatedAt.Unix(),
 		})
 	}
 

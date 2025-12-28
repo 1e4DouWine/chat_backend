@@ -30,6 +30,7 @@ func newGroupMember(db *gorm.DB, opts ...gen.DOOption) groupMember {
 	_groupMember.ALL = field.NewAsterisk(tableName)
 	_groupMember.GroupID = field.NewString(tableName, "group_id")
 	_groupMember.UserID = field.NewString(tableName, "user_id")
+	_groupMember.Role = field.NewString(tableName, "role")
 	_groupMember.CreatedAt = field.NewTime(tableName, "created_at")
 	_groupMember.DeletedAt = field.NewField(tableName, "deleted_at")
 
@@ -44,6 +45,7 @@ type groupMember struct {
 	ALL       field.Asterisk
 	GroupID   field.String
 	UserID    field.String
+	Role      field.String
 	CreatedAt field.Time
 	DeletedAt field.Field
 
@@ -64,6 +66,7 @@ func (g *groupMember) updateTableName(table string) *groupMember {
 	g.ALL = field.NewAsterisk(table)
 	g.GroupID = field.NewString(table, "group_id")
 	g.UserID = field.NewString(table, "user_id")
+	g.Role = field.NewString(table, "role")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.DeletedAt = field.NewField(table, "deleted_at")
 
@@ -82,9 +85,10 @@ func (g *groupMember) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (g *groupMember) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 4)
+	g.fieldMap = make(map[string]field.Expr, 5)
 	g.fieldMap["group_id"] = g.GroupID
 	g.fieldMap["user_id"] = g.UserID
+	g.fieldMap["role"] = g.Role
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["deleted_at"] = g.DeletedAt
 }

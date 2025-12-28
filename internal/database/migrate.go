@@ -10,7 +10,7 @@ import (
 // Migrate 执行数据库迁移
 func Migrate() error {
 	db := GetDB()
-	
+
 	// 自动迁移所有模型
 	err := db.AutoMigrate(
 		&model.User{},
@@ -18,8 +18,9 @@ func Migrate() error {
 		&model.Friend{},
 		&model.Group{},
 		&model.GroupMember{},
+		&model.InvitationCode{},
 	)
-	
+
 	if err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
@@ -84,7 +85,7 @@ func createIndexes(db *gorm.DB) error {
 // DropTables 删除所有表（仅用于开发环境）
 func DropTables() error {
 	db := GetDB()
-	
+
 	// 删除表（需要按依赖顺序删除）
 	tables := []interface{}{
 		&model.GroupMember{},
@@ -92,14 +93,15 @@ func DropTables() error {
 		&model.Friend{},
 		&model.Group{},
 		&model.User{},
+		&model.InvitationCode{},
 	}
-	
+
 	for _, table := range tables {
 		if err := db.Migrator().DropTable(table); err != nil {
 			return fmt.Errorf("删除表失败: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -108,10 +110,10 @@ func ResetDatabase() error {
 	if err := DropTables(); err != nil {
 		return fmt.Errorf("删除表失败: %w", err)
 	}
-	
+
 	if err := Migrate(); err != nil {
 		return fmt.Errorf("迁移失败: %w", err)
 	}
-	
+
 	return nil
 }

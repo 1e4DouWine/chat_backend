@@ -22,6 +22,7 @@ func main() {
 		model.Group{},
 		model.GroupMember{},
 		model.Message{},
+		model.InvitationCode{},
 	)
 
 	g.Execute()

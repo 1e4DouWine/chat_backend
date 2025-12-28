@@ -31,6 +31,7 @@ func newGroup(db *gorm.DB, opts ...gen.DOOption) group {
 	_group.ID = field.NewString(tableName, "id")
 	_group.Name = field.NewString(tableName, "name")
 	_group.OwnerID = field.NewString(tableName, "owner_id")
+	_group.MemberCount = field.NewInt(tableName, "member_count")
 	_group.CreatedAt = field.NewTime(tableName, "created_at")
 	_group.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_group.DeletedAt = field.NewField(tableName, "deleted_at")
@@ -43,13 +44,14 @@ func newGroup(db *gorm.DB, opts ...gen.DOOption) group {
 type group struct {
 	groupDo
 
-	ALL       field.Asterisk
-	ID        field.String
-	Name      field.String
-	OwnerID   field.String
-	CreatedAt field.Time
-	UpdatedAt field.Time
-	DeletedAt field.Field
+	ALL         field.Asterisk
+	ID          field.String
+	Name        field.String
+	OwnerID     field.String
+	MemberCount field.Int
+	CreatedAt   field.Time
+	UpdatedAt   field.Time
+	DeletedAt   field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -69,6 +71,7 @@ func (g *group) updateTableName(table string) *group {
 	g.ID = field.NewString(table, "id")
 	g.Name = field.NewString(table, "name")
 	g.OwnerID = field.NewString(table, "owner_id")
+	g.MemberCount = field.NewInt(table, "member_count")
 	g.CreatedAt = field.NewTime(table, "created_at")
 	g.UpdatedAt = field.NewTime(table, "updated_at")
 	g.DeletedAt = field.NewField(table, "deleted_at")
@@ -88,10 +91,11 @@ func (g *group) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (g *group) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 6)
+	g.fieldMap = make(map[string]field.Expr, 7)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["name"] = g.Name
 	g.fieldMap["owner_id"] = g.OwnerID
+	g.fieldMap["member_count"] = g.MemberCount
 	g.fieldMap["created_at"] = g.CreatedAt
 	g.fieldMap["updated_at"] = g.UpdatedAt
 	g.fieldMap["deleted_at"] = g.DeletedAt

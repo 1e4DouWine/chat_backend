@@ -28,33 +28,39 @@ func NewGroupService(db *gorm.DB) *GroupService {
 
 // CreateGroup 创建群组
 func (s *GroupService) CreateGroup(ctx context.Context, userID string, name string) (*dto.GroupResponse, error) {
-	// 创建群组
-	group := model.Group{
-		Name:        name,
-		OwnerID:     userID,
-		MemberCount: 1,
-	}
+	var group model.Group
 
-	q := dao.Use(s.db).Group
-	do := q.WithContext(ctx)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		q := dao.Use(tx).Group
+		do := q.WithContext(ctx)
 
-	if err := do.Create(&group); err != nil {
-		return nil, err
-	}
+		group = model.Group{
+			Name:        name,
+			OwnerID:     userID,
+			MemberCount: 1,
+		}
 
-	// 创建群组成员关系（群主）
-	groupMember := model.GroupMember{
-		GroupID: group.ID,
-		UserID:  userID,
-		Role:    RoleOwner,
-	}
+		if err := do.Create(&group); err != nil {
+			return err
+		}
 
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	if err := mdo.Create(&groupMember); err != nil {
-		// 如果创建成员关系失败，删除群组
-		_, _ = do.Where(q.ID.Eq(group.ID)).Delete()
+		groupMember := model.GroupMember{
+			GroupID: group.ID,
+			UserID:  userID,
+			Role:    RoleOwner,
+		}
+
+		if err := mdo.Create(&groupMember); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -179,40 +185,44 @@ func (s *GroupService) GetGroupDetail(ctx context.Context, userID string, groupI
 
 // JoinGroup 加入群组
 func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID string, inviteCode string) (*dto.JoinGroupResponse, error) {
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+	var group *model.Group
 
-	// 检查群组是否存在
-	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return nil, fmt.Errorf("group not found")
-	}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查是否已在群组中
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		var err error
+		group, err = gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
-	if err == nil {
-		return nil, fmt.Errorf("already in group")
-	}
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	// TODO: 如果群组需要邀请码，检查邀请码（这里简化处理）
-	// 实际项目中需要实现邀请码验证逻辑
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
+		if err == nil {
+			return fmt.Errorf("already in group")
+		}
 
-	// 创建成员关系
-	groupMember := model.GroupMember{
-		GroupID: groupID,
-		UserID:  userID,
-		Role:    RoleMember,
-	}
+		groupMember := model.GroupMember{
+			GroupID: groupID,
+			UserID:  userID,
+			Role:    RoleMember,
+		}
 
-	if err := mdo.Create(&groupMember); err != nil {
-		return nil, err
-	}
+		if err := mdo.Create(&groupMember); err != nil {
+			return err
+		}
 
-	// 更新群组成员数
-	_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Add(1))
+		_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Add(1))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -226,217 +236,218 @@ func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID str
 
 // LeaveGroup 退出群组
 func (s *GroupService) LeaveGroup(ctx context.Context, userID string, groupID string) error {
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查群组是否存在
-	_, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return fmt.Errorf("group not found")
-	}
+		_, err := gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	// 检查是否是群主
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	member, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
-	if err != nil {
-		return fmt.Errorf("not in group")
-	}
+		member, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
+		if err != nil {
+			return fmt.Errorf("not in group")
+		}
 
-	if member.Role == RoleOwner {
-		return fmt.Errorf("cannot leave as owner")
-	}
+		if member.Role == RoleOwner {
+			return fmt.Errorf("cannot leave as owner")
+		}
 
-	// 删除成员关系
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).Delete()
-	if err != nil {
-		return err
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).Delete()
+		if err != nil {
+			return err
+		}
 
-	// 更新群组成员数
-	_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Sub(1))
-	if err != nil {
-		return err
-	}
+		_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Sub(1))
+		if err != nil {
+			return err
+		}
 
-	return nil
+		return nil
+	})
+
+	return err
 }
 
 // DisbandGroup 解散群组
 func (s *GroupService) DisbandGroup(ctx context.Context, userID string, groupID string) error {
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查群组是否存在
-	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return fmt.Errorf("group not found")
-	}
+		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	// 检查权限
-	if group.OwnerID != userID {
-		return fmt.Errorf("permission denied")
-	}
+		if group.OwnerID != userID {
+			return fmt.Errorf("permission denied")
+		}
 
-	// 删除所有成员
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	_, err = mdo.Where(mq.GroupID.Eq(groupID)).Delete()
-	if err != nil {
-		return err
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID)).Delete()
+		if err != nil {
+			return err
+		}
 
-	// 删除群组
-	_, err = gdo.Where(gq.ID.Eq(groupID)).Delete()
-	if err != nil {
-		return err
-	}
+		_, err = gdo.Where(gq.ID.Eq(groupID)).Delete()
+		if err != nil {
+			return err
+		}
 
-	return nil
+		return nil
+	})
+
+	return err
 }
 
 // TransferGroup 转让群组
 func (s *GroupService) TransferGroup(ctx context.Context, userID string, groupID string, newOwnerID string) error {
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查群组是否存在
-	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return fmt.Errorf("group not found")
-	}
+		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	// 检查权限
-	if group.OwnerID != userID {
-		return fmt.Errorf("permission denied")
-	}
+		if group.OwnerID != userID {
+			return fmt.Errorf("permission denied")
+		}
 
-	// 检查新群主是否在群组中
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).First()
-	if err != nil {
-		return fmt.Errorf("target user not in group")
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).First()
+		if err != nil {
+			return fmt.Errorf("target user not in group")
+		}
 
-	// 更新新群主角色
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).Update(mq.Role, RoleOwner)
-	if err != nil {
-		return err
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).Update(mq.Role, RoleOwner)
+		if err != nil {
+			return err
+		}
 
-	// 更新原群主角色
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).Update(mq.Role, RoleMember)
-	if err != nil {
-		return err
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).Update(mq.Role, RoleMember)
+		if err != nil {
+			return err
+		}
 
-	// 更新群组的owner_id
-	_, err = gdo.Where(gq.ID.Eq(groupID)).Update(gq.OwnerID, newOwnerID)
-	if err != nil {
-		return err
-	}
+		_, err = gdo.Where(gq.ID.Eq(groupID)).Update(gq.OwnerID, newOwnerID)
+		if err != nil {
+			return err
+		}
 
-	return nil
+		return nil
+	})
+
+	return err
 }
 
 // RemoveMember 移除群组成员
 func (s *GroupService) RemoveMember(ctx context.Context, userID string, groupID string, targetUserID string) error {
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查群组是否存在
-	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return fmt.Errorf("group not found")
-	}
+		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	// 检查权限
-	if group.OwnerID != userID {
-		return fmt.Errorf("permission denied")
-	}
+		if group.OwnerID != userID {
+			return fmt.Errorf("permission denied")
+		}
 
-	// 不能移除自己
-	if targetUserID == userID {
-		return fmt.Errorf("cannot remove yourself")
-	}
+		if targetUserID == userID {
+			return fmt.Errorf("cannot remove yourself")
+		}
 
-	// 检查目标用户是否在群组中
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	targetMember, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).First()
-	if err != nil {
-		return fmt.Errorf("target user not in group")
-	}
+		targetMember, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).First()
+		if err != nil {
+			return fmt.Errorf("target user not in group")
+		}
 
-	// 不能移除群主
-	if targetMember.Role == RoleOwner {
-		return fmt.Errorf("cannot remove owner")
-	}
+		if targetMember.Role == RoleOwner {
+			return fmt.Errorf("cannot remove owner")
+		}
 
-	// 删除成员
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).Delete()
-	if err != nil {
-		return err
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).Delete()
+		if err != nil {
+			return err
+		}
 
-	// 更新群组成员数
-	_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Sub(1))
-	if err != nil {
-		return err
-	}
+		_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Sub(1))
+		if err != nil {
+			return err
+		}
 
-	return nil
+		return nil
+	})
+
+	return err
 }
 
 // JoinGroupByCode 通过邀请码加入群组
 func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, inviteCode string) (*dto.JoinGroupByCodeResponse, error) {
-	// 验证邀请码
-	icQ := dao.Use(s.db).InvitationCode
-	icDo := icQ.WithContext(ctx)
+	var group *model.Group
+	var groupID string
 
-	invitationCode, err := icDo.Where(icQ.Code.Eq(inviteCode)).First()
-	if err != nil {
-		return nil, fmt.Errorf("invalid invite code")
-	}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		icQ := dao.Use(tx).InvitationCode
+		icDo := icQ.WithContext(ctx)
 
-	groupID := invitationCode.UUID
+		invitationCode, err := icDo.Where(icQ.Code.Eq(inviteCode)).First()
+		if err != nil {
+			return fmt.Errorf("invalid invite code")
+		}
 
-	// 检查群组是否存在
-	gq := dao.Use(s.db).Group
-	gdo := gq.WithContext(ctx)
+		groupID = invitationCode.UUID
 
-	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
-	if err != nil {
-		return nil, fmt.Errorf("group not found")
-	}
+		gq := dao.Use(tx).Group
+		gdo := gq.WithContext(ctx)
 
-	// 检查是否已在群组中
-	mq := dao.Use(s.db).GroupMember
-	mdo := mq.WithContext(ctx)
+		group, err = gdo.Where(gq.ID.Eq(groupID)).First()
+		if err != nil {
+			return fmt.Errorf("group not found")
+		}
 
-	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
-	if err == nil {
-		return nil, fmt.Errorf("already in group")
-	}
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
 
-	// 创建成员关系
-	groupMember := model.GroupMember{
-		GroupID: groupID,
-		UserID:  userID,
-		Role:    RoleMember,
-	}
+		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
+		if err == nil {
+			return fmt.Errorf("already in group")
+		}
 
-	if err := mdo.Create(&groupMember); err != nil {
-		return nil, err
-	}
+		groupMember := model.GroupMember{
+			GroupID: groupID,
+			UserID:  userID,
+			Role:    RoleMember,
+		}
 
-	// 更新群组成员数
-	_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Add(1))
+		if err := mdo.Create(&groupMember); err != nil {
+			return err
+		}
+
+		_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Add(1))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
 	}

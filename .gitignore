@@ -1,3 +1,5 @@
 logs/
 
 configs/*.yaml
+.trae/rules/project_rules.md
+chat_backend.exe

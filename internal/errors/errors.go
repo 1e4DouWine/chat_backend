@@ -32,6 +32,21 @@ const (
 	ErrCodeFailedToGetFriendList  = 5007
 	ErrCodeFailedToProcessRequest = 5008
 	ErrCodeFailedToDeleteFriend   = 5009
+	ErrCodeGroupNameEmpty         = 5010
+	ErrCodeFailedToCreateGroup    = 5011
+	ErrCodeGroupNotFound          = 5012
+	ErrCodeGroupAlreadyExists     = 5013
+	ErrCodePermissionDenied       = 5014
+	ErrCodeInvalidGroupRole       = 5015
+	ErrCodeFailedToJoinGroup      = 5016
+	ErrCodeFailedToLeaveGroup     = 5017
+	ErrCodeFailedToDisbandGroup   = 5018
+	ErrCodeFailedToTransferGroup  = 5019
+	ErrCodeFailedToRemoveMember   = 5020
+	ErrCodeInviteCodeRequired     = 5021
+	ErrCodeInvalidInviteCode      = 5022
+	ErrCodeAlreadyInGroup         = 5023
+	ErrCodeCannotLeaveAsOwner     = 5024
 )
 
 var (
@@ -54,6 +69,21 @@ var (
 		ErrCodeFailedToGetFriendList:  "failed to get friend list",
 		ErrCodeFailedToProcessRequest: "failed to process friend request",
 		ErrCodeFailedToDeleteFriend:   "failed to delete friend",
+		ErrCodeGroupNameEmpty:         "group name cannot be empty",
+		ErrCodeFailedToCreateGroup:    "failed to create group",
+		ErrCodeGroupNotFound:          "group not found",
+		ErrCodeGroupAlreadyExists:     "group already exists",
+		ErrCodePermissionDenied:       "permission denied",
+		ErrCodeInvalidGroupRole:       "invalid group role",
+		ErrCodeFailedToJoinGroup:      "failed to join group",
+		ErrCodeFailedToLeaveGroup:     "failed to leave group",
+		ErrCodeFailedToDisbandGroup:   "failed to disband group",
+		ErrCodeFailedToTransferGroup:  "failed to transfer group",
+		ErrCodeFailedToRemoveMember:   "failed to remove member",
+		ErrCodeInviteCodeRequired:     "invite code required",
+		ErrCodeInvalidInviteCode:      "invalid invite code",
+		ErrCodeAlreadyInGroup:         "already in group",
+		ErrCodeCannotLeaveAsOwner:     "cannot leave as owner",
 	}
 )
 

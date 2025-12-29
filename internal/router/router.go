@@ -17,6 +17,7 @@ func InitRouter(e *echo.Echo) {
 
 	authRoutes(apiV1)
 	userRoutes(apiV1)
+	groupRoutes(apiV1)
 }
 
 // helloRoutes 注册hello相关路由
@@ -45,4 +46,37 @@ func userRoutes(api *echo.Group) {
 	user.POST("/friend", v1.AddFriend)
 	user.PUT("/friend/:id", v1.ProcessFriendRequest)
 	user.DELETE("/friend/:id", v1.DeleteFriend)
+}
+
+// groupRoutes 群组相关路由
+func groupRoutes(api *echo.Group) {
+	group := api.Group("/group")
+	group.Use(middleware.JWTMiddleware())
+
+	// 创建群组
+	group.POST("", v1.CreateGroup)
+
+	// 获取群组列表
+	group.GET("", v1.GetGroupList)
+
+	// 获取群组详情
+	group.GET("/:id", v1.GetGroupDetail)
+
+	// 加入群组
+	//group.POST("/:id/join", v1.JoinGroup)
+
+	// 通过邀请码加入群组
+	group.POST("/join-by-code", v1.JoinGroupByCode)
+
+	// 退出群组
+	group.POST("/:id/leave", v1.LeaveGroup)
+
+	// 解散群组
+	group.DELETE("/:id", v1.DisbandGroup)
+
+	// 转让群组
+	group.PUT("/:id/transfer", v1.TransferGroup)
+
+	// 移除群组成员
+	group.DELETE("/:group_id/member/:user_id", v1.RemoveMember)
 }

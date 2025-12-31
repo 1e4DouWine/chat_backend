@@ -3,6 +3,7 @@ package router
 import (
 	"chat_backend/internal/middleware"
 	v1 "chat_backend/internal/router/api/v1"
+	"chat_backend/internal/websocket"
 
 	"github.com/labstack/echo/v4"
 )
@@ -18,6 +19,7 @@ func InitRouter(e *echo.Echo) {
 	authRoutes(apiV1)
 	userRoutes(apiV1)
 	groupRoutes(apiV1)
+	wsRoutes(e)
 }
 
 // helloRoutes 注册hello相关路由
@@ -79,4 +81,17 @@ func groupRoutes(api *echo.Group) {
 
 	// 移除群组成员
 	group.DELETE("/:group_id/member/:user_id", v1.RemoveMember)
+}
+
+// wsRoutes WebSocket相关路由
+func wsRoutes(e *echo.Echo) {
+	ws := e.Group("/ws")
+	ws.Use(middleware.JWTMiddleware())
+	ws.GET("", websocket.HandleWebSocket)
+
+	// WebSocket 状态查询API
+	wsAPI := e.Group("/api/v1/ws")
+	wsAPI.Use(middleware.JWTMiddleware())
+	wsAPI.GET("/online", websocket.GetOnlineUsers)
+	wsAPI.GET("/online/:id", websocket.IsUserOnline)
 }

@@ -105,18 +105,22 @@ func ValidateToken(tokenString string) (*JWTClaims, error) {
 func JWTMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// 优先从Header获取，如果没有则从URL参数获取
 			authHeader := c.Request().Header.Get("Authorization")
-			if authHeader == "" {
-				return response.Error(c, 2000, "missing authorization header")
-			}
+			var tokenString string
 
-			// 检查 Bearer 前缀
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || parts[0] != global.JwtBearerPrefix {
-				return response.Error(c, 2000, "invalid authorization header format")
+			if authHeader != "" {
+				parts := strings.Split(authHeader, " ")
+				if len(parts) == 2 && parts[0] == global.JwtBearerPrefix {
+					tokenString = parts[1]
+				}
+			} else {
+				// 从URL参数获取
+				tokenString = c.QueryParam("token")
+				if tokenString == "" {
+					return response.Error(c, 2000, "missing authorization header or token parameter")
+				}
 			}
-
-			tokenString := parts[1]
 			claims, err := ValidateToken(tokenString)
 			if err != nil {
 				return response.Error(c, 2001, "invalid or expired token")

@@ -458,3 +458,33 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 		Status:  "joined",
 	}, nil
 }
+
+// SearchGroup 搜索群组
+func (s *GroupService) SearchGroup(ctx context.Context, groupName string) ([]*dto.SearchGroupResponse, error) {
+	gq := dao.Use(s.db).Group
+	gdo := gq.WithContext(ctx)
+
+	var groups []model.Group
+
+	err := gdo.Where(gq.Name.Like("%" + groupName + "%")).Scan(&groups)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(groups) == 0 {
+		return []*dto.SearchGroupResponse{}, nil
+	}
+
+	responses := make([]*dto.SearchGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		responses = append(responses, &dto.SearchGroupResponse{
+			GroupID:     group.ID,
+			Name:        group.Name,
+			OwnerID:     group.OwnerID,
+			MemberCount: group.MemberCount,
+			CreatedAt:   group.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return responses, nil
+}

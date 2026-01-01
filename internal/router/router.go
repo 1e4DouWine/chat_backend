@@ -64,6 +64,9 @@ func groupRoutes(api *echo.Group) {
 	// 获取群组详情
 	group.GET("/:id", v1.GetGroupDetail)
 
+	// 搜索群组
+	group.GET("/search", v1.SearchGroup)
+
 	// 加入群组
 	//group.POST("/:id/join", v1.JoinGroup)
 

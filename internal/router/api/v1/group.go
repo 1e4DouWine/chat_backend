@@ -259,3 +259,20 @@ func JoinGroupByCode(c echo.Context) error {
 
 	return response.Success(c, result)
 }
+
+// SearchGroup 搜索群组
+func SearchGroup(c echo.Context) error {
+	ctx := c.Request().Context()
+	groupName := c.QueryParam("name")
+	if groupName == "" {
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "name is required")
+	}
+
+	groupService := service.NewGroupService(database.GetDB())
+	groups, err := groupService.SearchGroup(ctx, groupName)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeInternalError, err.Error())
+	}
+
+	return response.Success(c, groups)
+}

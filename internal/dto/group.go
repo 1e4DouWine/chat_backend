@@ -16,13 +16,13 @@ type GroupResponse struct {
 
 // GroupDetailResponse 群组详情响应
 type GroupDetailResponse struct {
-	GroupID     string              `json:"group_id"`
-	Name        string              `json:"name"`
-	OwnerID     string              `json:"owner_id"`
-	OwnerName   string              `json:"owner_name"`
-	MemberCount int                 `json:"member_count"`
-	CreatedAt   string              `json:"created_at"`
-	Members     []GroupMemberInfo   `json:"members"`
+	GroupID     string            `json:"group_id"`
+	Name        string            `json:"name"`
+	OwnerID     string            `json:"owner_id"`
+	OwnerName   string            `json:"owner_name"`
+	MemberCount int               `json:"member_count"`
+	CreatedAt   string            `json:"created_at"`
+	Members     []GroupMemberInfo `json:"members"`
 }
 
 // GroupMemberInfo 群组成员信息
@@ -70,4 +70,13 @@ type JoinGroupByCodeResponse struct {
 	GroupID string `json:"group_id"`
 	Name    string `json:"name"`
 	Status  string `json:"status"` // joined
+}
+
+// SearchGroupResponse 搜索群组响应
+type SearchGroupResponse struct {
+	GroupID     string `json:"group_id"`
+	Name        string `json:"name"`
+	OwnerID     string `json:"owner_id"`
+	MemberCount int    `json:"member_count"`
+	CreatedAt   string `json:"created_at"`
 }

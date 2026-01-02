@@ -398,3 +398,25 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 
 	return nil
 }
+
+// IsFriend 检查两个用户是否是好友关系
+func (s *UserService) IsFriend(ctx context.Context, userID string, targetUserID string) (bool, error) {
+	friendQ := dao.Use(s.db).Friend
+	friendDo := friendQ.WithContext(ctx)
+
+	count, err := friendDo.Where(
+		friendQ.Status.Eq(FriendStatusNormal),
+		friendQ.UserA.Eq(userID),
+		friendQ.UserB.Eq(targetUserID),
+	).Or(
+		friendQ.Status.Eq(FriendStatusNormal),
+		friendQ.UserA.Eq(targetUserID),
+		friendQ.UserB.Eq(userID),
+	).Count()
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}

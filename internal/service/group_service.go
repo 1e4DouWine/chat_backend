@@ -646,6 +646,22 @@ func (s *GroupService) GetGroupMemberIDs(ctx context.Context, groupID string) ([
 	return memberIDs, nil
 }
 
+// IsGroupMember 检查用户是否是群组成员
+func (s *GroupService) IsGroupMember(ctx context.Context, groupID string, userID string) (bool, error) {
+	mq := dao.Use(s.db).GroupMember
+	mdo := mq.WithContext(ctx)
+
+	count, err := mdo.Where(
+		mq.GroupID.Eq(groupID),
+		mq.UserID.Eq(userID),
+	).Count()
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
 // ApproveJoinRequest 审批入群请求
 func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, groupID string, senderID string, action string) error {
 	gq := dao.Use(s.db).Group

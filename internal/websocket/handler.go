@@ -2,12 +2,14 @@ package websocket
 
 import (
 	"chat_backend/internal/database"
+	"chat_backend/internal/model"
 	"chat_backend/internal/service"
 	"chat_backend/pkg/logger"
 	"context"
 	"encoding/json"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -81,6 +83,43 @@ func HandleWebSocket(c echo.Context) error {
 		}
 	}
 
+	// 处理未送达消息
+	messageService := service.NewMessageService(database.GetDB())
+	undeliveredMessages, err := messageService.GetUndeliveredMessages(ctx, userIDStr)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to get undelivered messages", "user_id", userIDStr, "error", err)
+	} else if len(undeliveredMessages) > 0 {
+		logger.GetLogger().Infow("Sending undelivered messages", "user_id", userIDStr, "count", len(undeliveredMessages))
+
+		messageIDs := make([]string, 0, len(undeliveredMessages))
+		for _, msg := range undeliveredMessages {
+			var chatType ChatType
+			if msg.Type == string(model.MessageTypePrivate) {
+				chatType = ChatTypePrivate
+			} else {
+				chatType = ChatTypeGroup
+			}
+
+			wsMsg := WSMessage{
+				Type:      MessageTypeText,
+				ChatType:  chatType,
+				From:      msg.FromUserID,
+				To:        msg.TargetID,
+				Content:   msg.Content,
+				MessageID: msg.MessageID,
+				Timestamp: msg.CreatedAt.UnixMilli(),
+			}
+
+			userConn.Send(wsMsg)
+			messageIDs = append(messageIDs, msg.MessageID)
+		}
+
+		// 标记消息为已送达
+		if err := messageService.MarkMessagesAsDelivered(ctx, userIDStr, messageIDs); err != nil {
+			logger.GetLogger().Errorw("Failed to mark messages as delivered", "user_id", userIDStr, "error", err)
+		}
+	}
+
 	// 启动写入泵（goroutine）
 	go userConn.WritePump(ctx)
 
@@ -92,6 +131,24 @@ func HandleWebSocket(c echo.Context) error {
 	logger.GetLogger().Infow("WebSocket connection closed", "user_id", userIDStr)
 
 	return nil
+}
+
+const (
+	maxMessageLength = 10000
+)
+
+// validateMessageContent 验证消息内容
+func validateMessageContent(msgType MessageType, content string) bool {
+	if content == "" {
+		return false
+	}
+
+	length := utf8.RuneCountInString(content)
+	if length > maxMessageLength {
+		return false
+	}
+
+	return true
 }
 
 // handleMessage 处理接收到的WebSocket消息
@@ -107,14 +164,36 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 	// 心跳消息处理
 	case MessageTypeHeartbeat:
 		logger.GetLogger().Debugw("Heartbeat received", "user_id", conn.UserID)
+		heartbeatMsg := WSMessage{
+			Type:      MessageTypeHeartbeat,
+			From:      "system",
+			To:        conn.UserID,
+			Timestamp: time.Now().UnixMilli(),
+		}
+		conn.Send(heartbeatMsg)
 
 	// 业务消息处理（文本、图片、文件）
 	case MessageTypeText, MessageTypeImage, MessageTypeFile:
-		// 生成消息ID（如果未提供）
-		if msg.MessageID == "" {
-			msg.MessageID = uuid.New().String()
+		// 验证消息内容
+		if !validateMessageContent(msg.Type, msg.Content) {
+			logger.GetLogger().Warnw("Invalid message content", "type", msg.Type, "from", msg.From, "content_length", utf8.RuneCountInString(msg.Content))
+			errorMsg := WSMessage{
+				Type:      MessageTypeSystem,
+				From:      "system",
+				To:        conn.UserID,
+				Content:   "消息内容无效",
+				Timestamp: time.Now().UnixMilli(),
+			}
+			conn.Send(errorMsg)
+			return
 		}
 
+		// 统一使用后端生成的消息ID
+		messageID := uuid.New().String()
+		msg.MessageID = messageID
+
+		// 创建消息服务实例
+		messageService := service.NewMessageService(database.GetDB())
 		cm := GetConnectionManager()
 
 		// 根据聊天类型分发消息
@@ -124,23 +203,75 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 			// 检查是否有接收者
 			if msg.To == "" {
 				logger.GetLogger().Warnw("Private message missing target", "from", msg.From)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "缺少目标用户",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+
+			// 验证好友关系
+			userService := service.NewUserService(database.GetDB())
+			isFriend, err := userService.IsFriend(context.Background(), msg.From, msg.To)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to check friend relationship", "from", msg.From, "to", msg.To, "error", err)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "验证好友关系失败",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+			if !isFriend {
+				logger.GetLogger().Warnw("Not friends", "from", msg.From, "to", msg.To)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "只能向好友发送消息",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
 				return
 			}
 
 			// 检查接收者是否在线
-			if cm.IsOnline(msg.To) {
-				// 在线则直接发送
+			isTargetOnline := cm.IsOnline(msg.To)
+
+			// 存储消息到数据库并处理离线消息
+			_, err = messageService.SendPrivateMessage(context.Background(), msg.From, msg.To, msg.Content, messageID, isTargetOnline)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to store message", "message_id", messageID, "error", err)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "消息发送失败",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+
+			// 在线则直接发送
+			if isTargetOnline {
 				cm.SendToUser(msg.To, msg)
-				logger.GetLogger().Infow("Message sent to online user", "to", msg.To, "message_id", msg.MessageID)
+				logger.GetLogger().Infow("Message sent to online user", "to", msg.To, "message_id", messageID)
 			} else {
-				// 离线则记录日志（实际应该存储到数据库）
-				logger.GetLogger().Infow("User offline, message should be stored", "to", msg.To, "message_id", msg.MessageID)
+				logger.GetLogger().Infow("User offline, message stored", "to", msg.To, "message_id", messageID)
 			}
 
 			// 发送确认消息给发送者
 			ackMsg := WSMessage{
 				Type:      MessageTypeAck,
-				MessageID: msg.MessageID,
+				MessageID: messageID,
 				From:      "system",
 				To:        conn.UserID,
 				Content:   "message_sent",
@@ -153,25 +284,89 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 			// 检查是否有目标群组
 			if msg.To == "" {
 				logger.GetLogger().Warnw("Group message missing target", "from", msg.From)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "缺少目标群组",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+
+			// 验证发送者是否是群组成员
+			groupService := service.NewGroupService(database.GetDB())
+			isMember, err := groupService.IsGroupMember(context.Background(), msg.To, msg.From)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to check group membership", "from", msg.From, "group_id", msg.To, "error", err)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "验证群组成员失败",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+			if !isMember {
+				logger.GetLogger().Warnw("Not group member", "from", msg.From, "group_id", msg.To)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "只有群组成员才能发送消息",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
 				return
 			}
 
 			// 获取群组成员列表
-			groupService := service.NewGroupService(database.GetDB())
 			memberIDs, err := groupService.GetGroupMemberIDs(context.Background(), msg.To)
 			if err != nil {
 				logger.GetLogger().Errorw("Failed to get group members", "group_id", msg.To, "error", err)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "获取群组成员失败",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
+				return
+			}
+
+			// 构建在线用户映射
+			onlineUserIDs := make(map[string]bool)
+			for _, memberID := range memberIDs {
+				onlineUserIDs[memberID] = cm.IsOnline(memberID)
+			}
+
+			// 存储群组消息到数据库并处理离线消息
+			_, err = messageService.SendGroupMessage(context.Background(), msg.From, msg.To, msg.Content, messageID, onlineUserIDs)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to store group message", "message_id", messageID, "error", err)
+				errorMsg := WSMessage{
+					Type:      MessageTypeSystem,
+					From:      "system",
+					To:        conn.UserID,
+					Content:   "消息发送失败",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				conn.Send(errorMsg)
 				return
 			}
 
 			// 广播消息给群组内所有在线用户（排除发送者自己）
 			cm.BroadcastToGroup(msg, memberIDs, conn.UserID)
-			logger.GetLogger().Infow("Group message broadcasted", "group_id", msg.To, "message_id", msg.MessageID, "member_count", len(memberIDs))
+			logger.GetLogger().Infow("Group message broadcasted", "group_id", msg.To, "message_id", messageID, "member_count", len(memberIDs))
 
 			// 发送确认消息给发送者
 			ackMsg := WSMessage{
 				Type:      MessageTypeAck,
-				MessageID: msg.MessageID,
+				MessageID: messageID,
 				From:      "system",
 				To:        conn.UserID,
 				Content:   "message_sent",
@@ -182,11 +377,27 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 		// 未知聊天类型
 		default:
 			logger.GetLogger().Warnw("Unknown chat type", "chat_type", msg.ChatType, "from", msg.From)
+			errorMsg := WSMessage{
+				Type:      MessageTypeSystem,
+				From:      "system",
+				To:        conn.UserID,
+				Content:   "未知的聊天类型",
+				Timestamp: time.Now().UnixMilli(),
+			}
+			conn.Send(errorMsg)
 		}
 
 	// 未知消息类型
 	default:
 		logger.GetLogger().Warnw("Unknown message type", "type", msg.Type, "from", msg.From)
+		errorMsg := WSMessage{
+			Type:      MessageTypeSystem,
+			From:      "system",
+			To:        conn.UserID,
+			Content:   "未知的消息类型",
+			Timestamp: time.Now().UnixMilli(),
+		}
+		conn.Send(errorMsg)
 	}
 }
 

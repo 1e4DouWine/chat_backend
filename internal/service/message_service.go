@@ -177,3 +177,196 @@ func (s *MessageService) generateAvatarUrl(userID string, username string) strin
 	color := colorFromUUID(userID)
 	return "https://ui-avatars.com/api/?name=" + username + "&background=" + color + "&rounded=true&size=128"
 }
+
+func (s *MessageService) SendPrivateMessage(ctx context.Context, fromUserID string, targetUserID string, content string, messageID string, isTargetOnline bool) (*model.Message, error) {
+	var message *model.Message
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		q := dao.Use(tx).Message
+		do := q.WithContext(ctx)
+
+		message = &model.Message{
+			FromUserID: fromUserID,
+			TargetID:   targetUserID,
+			Type:       model.MessageTypePrivate,
+			Content:    content,
+		}
+
+		if messageID != "" {
+			message.ID = messageID
+		}
+
+		if err := do.Create(message); err != nil {
+			return err
+		}
+
+		if !isTargetOnline {
+			rq := dao.Use(tx).MessageReceipt
+			rdo := rq.WithContext(ctx)
+
+			receipt := &model.MessageReceipt{
+				MessageID:   message.ID,
+				UserID:      targetUserID,
+				IsDelivered: false,
+			}
+
+			if err := rdo.Create(receipt); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
+
+func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string, groupID string, content string, messageID string, onlineUserIDs map[string]bool) (*model.Message, error) {
+	var message *model.Message
+	var memberIDs []string
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		q := dao.Use(tx).Message
+		do := q.WithContext(ctx)
+
+		message = &model.Message{
+			FromUserID: fromUserID,
+			TargetID:   groupID,
+			Type:       model.MessageTypeGroup,
+			Content:    content,
+		}
+
+		if messageID != "" {
+			message.ID = messageID
+		}
+
+		if err := do.Create(message); err != nil {
+			return err
+		}
+
+		mq := dao.Use(tx).GroupMember
+		mdo := mq.WithContext(ctx)
+
+		var members []model.GroupMember
+		if err := mdo.Where(mq.GroupID.Eq(groupID)).Scan(&members); err != nil {
+			return err
+		}
+
+		memberIDs = make([]string, 0, len(members))
+		for _, member := range members {
+			memberIDs = append(memberIDs, member.UserID)
+		}
+
+		rq := dao.Use(tx).MessageReceipt
+		rdo := rq.WithContext(ctx)
+
+		var receipts []*model.MessageReceipt
+		for _, memberID := range memberIDs {
+			if memberID == fromUserID {
+				continue
+			}
+
+			if !onlineUserIDs[memberID] {
+				receipt := &model.MessageReceipt{
+					MessageID:   message.ID,
+					UserID:      memberID,
+					IsDelivered: false,
+				}
+				receipts = append(receipts, receipt)
+			}
+		}
+
+		if len(receipts) > 0 {
+			if err := rdo.CreateInBatches(receipts, 100); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
+
+func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID string) ([]dto.MessageResponse, error) {
+	rq := dao.Use(s.db).MessageReceipt
+	rdo := rq.WithContext(ctx)
+
+	receipts, err := rdo.Where(
+		rq.UserID.Eq(userID),
+		rq.IsDelivered.Is(false),
+	).Order(rq.CreatedAt.Asc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(receipts) == 0 {
+		return []dto.MessageResponse{}, nil
+	}
+
+	messageIDs := make([]string, 0, len(receipts))
+	for _, receipt := range receipts {
+		messageIDs = append(messageIDs, receipt.MessageID)
+	}
+
+	q := dao.Use(s.db).Message
+	do := q.WithContext(ctx)
+
+	messages, err := do.Where(q.ID.In(messageIDs...)).Order(q.CreatedAt.Asc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	messageResponses := make([]dto.MessageResponse, 0, len(messages))
+	for _, msg := range messages {
+		fromUser, _ := s.getUserInfo(ctx, msg.FromUserID)
+
+		if msg.Type == model.MessageTypePrivate {
+			targetUser, _ := s.getUserInfo(ctx, msg.TargetID)
+			messageResponses = append(messageResponses, dto.MessageResponse{
+				MessageID:  msg.ID,
+				FromUserID: msg.FromUserID,
+				TargetID:   msg.TargetID,
+				Type:       string(msg.Type),
+				Content:    msg.Content,
+				CreatedAt:  msg.CreatedAt,
+				FromUser:   fromUser,
+				TargetUser: targetUser,
+			})
+		} else {
+			groupInfo, _ := s.getGroupInfo(ctx, msg.TargetID)
+			messageResponses = append(messageResponses, dto.MessageResponse{
+				MessageID:   msg.ID,
+				FromUserID:  msg.FromUserID,
+				TargetID:    msg.TargetID,
+				Type:        string(msg.Type),
+				Content:     msg.Content,
+				CreatedAt:   msg.CreatedAt,
+				FromUser:    fromUser,
+				TargetGroup: groupInfo,
+			})
+		}
+	}
+
+	return messageResponses, nil
+}
+
+func (s *MessageService) MarkMessagesAsDelivered(ctx context.Context, userID string, messageIDs []string) error {
+	rq := dao.Use(s.db).MessageReceipt
+	rdo := rq.WithContext(ctx)
+
+	_, err := rdo.Where(
+		rq.UserID.Eq(userID),
+		rq.MessageID.In(messageIDs...),
+	).Update(rq.IsDelivered, true)
+
+	return err
+}

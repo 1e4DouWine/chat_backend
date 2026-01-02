@@ -627,6 +627,25 @@ func (s *GroupService) GetPendingJoinRequests(ctx context.Context, userID string
 	return responses, nil
 }
 
+// GetGroupMemberIDs 获取群组成员ID列表
+func (s *GroupService) GetGroupMemberIDs(ctx context.Context, groupID string) ([]string, error) {
+	mq := dao.Use(s.db).GroupMember
+	mdo := mq.WithContext(ctx)
+
+	var members []model.GroupMember
+	err := mdo.Where(mq.GroupID.Eq(groupID)).Scan(&members)
+	if err != nil {
+		return nil, err
+	}
+
+	memberIDs := make([]string, 0, len(members))
+	for _, member := range members {
+		memberIDs = append(memberIDs, member.UserID)
+	}
+
+	return memberIDs, nil
+}
+
 // ApproveJoinRequest 审批入群请求
 func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, groupID string, senderID string, action string) error {
 	gq := dao.Use(s.db).Group

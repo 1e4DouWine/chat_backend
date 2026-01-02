@@ -1,7 +1,10 @@
 package websocket
 
 import (
+	"chat_backend/internal/database"
+	"chat_backend/internal/service"
 	"chat_backend/pkg/logger"
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -72,7 +75,10 @@ func HandleWebSocket(c echo.Context) error {
 	}
 	data, err := json.Marshal(connectedMsg)
 	if err == nil {
-		conn.Write(ctx, websocket.MessageText, data)
+		err = conn.Write(ctx, websocket.MessageText, data)
+		if err != nil {
+			return err
+		}
 	}
 
 	// 启动写入泵（goroutine）
@@ -150,9 +156,17 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 				return
 			}
 
+			// 获取群组成员列表
+			groupService := service.NewGroupService(database.GetDB())
+			memberIDs, err := groupService.GetGroupMemberIDs(context.Background(), msg.To)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to get group members", "group_id", msg.To, "error", err)
+				return
+			}
+
 			// 广播消息给群组内所有在线用户（排除发送者自己）
-			cm.Broadcast(msg, conn.UserID)
-			logger.GetLogger().Infow("Group message broadcasted", "group_id", msg.To, "message_id", msg.MessageID)
+			cm.BroadcastToGroup(msg, memberIDs, conn.UserID)
+			logger.GetLogger().Infow("Group message broadcasted", "group_id", msg.To, "message_id", msg.MessageID, "member_count", len(memberIDs))
 
 			// 发送确认消息给发送者
 			ackMsg := WSMessage{

@@ -24,6 +24,7 @@ var (
 	GroupMember      *groupMember
 	InvitationCode   *invitationCode
 	Message          *message
+	MessageReceipt   *messageReceipt
 	User             *user
 )
 
@@ -36,6 +37,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	GroupMember = &Q.GroupMember
 	InvitationCode = &Q.InvitationCode
 	Message = &Q.Message
+	MessageReceipt = &Q.MessageReceipt
 	User = &Q.User
 }
 
@@ -49,6 +51,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		GroupMember:      newGroupMember(db, opts...),
 		InvitationCode:   newInvitationCode(db, opts...),
 		Message:          newMessage(db, opts...),
+		MessageReceipt:   newMessageReceipt(db, opts...),
 		User:             newUser(db, opts...),
 	}
 }
@@ -63,6 +66,7 @@ type Query struct {
 	GroupMember      groupMember
 	InvitationCode   invitationCode
 	Message          message
+	MessageReceipt   messageReceipt
 	User             user
 }
 
@@ -78,6 +82,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		GroupMember:      q.GroupMember.clone(db),
 		InvitationCode:   q.InvitationCode.clone(db),
 		Message:          q.Message.clone(db),
+		MessageReceipt:   q.MessageReceipt.clone(db),
 		User:             q.User.clone(db),
 	}
 }
@@ -100,6 +105,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		GroupMember:      q.GroupMember.replaceDB(db),
 		InvitationCode:   q.InvitationCode.replaceDB(db),
 		Message:          q.Message.replaceDB(db),
+		MessageReceipt:   q.MessageReceipt.replaceDB(db),
 		User:             q.User.replaceDB(db),
 	}
 }
@@ -112,6 +118,7 @@ type queryCtx struct {
 	GroupMember      IGroupMemberDo
 	InvitationCode   IInvitationCodeDo
 	Message          IMessageDo
+	MessageReceipt   IMessageReceiptDo
 	User             IUserDo
 }
 
@@ -124,6 +131,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		GroupMember:      q.GroupMember.WithContext(ctx),
 		InvitationCode:   q.InvitationCode.WithContext(ctx),
 		Message:          q.Message.WithContext(ctx),
+		MessageReceipt:   q.MessageReceipt.WithContext(ctx),
 		User:             q.User.WithContext(ctx),
 	}
 }

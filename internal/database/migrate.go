@@ -21,6 +21,7 @@ func Migrate() error {
 		&model.GroupMember{},
 		&model.InvitationCode{},
 		&model.GroupJoinRequest{},
+		&model.MessageReceipt{},
 	)
 
 	if err != nil {
@@ -90,6 +91,7 @@ func DropTables() error {
 		&model.InvitationCode{},
 		&model.FriendRequest{},
 		&model.GroupJoinRequest{},
+		&model.MessageReceipt{},
 	}
 
 	for _, table := range tables {

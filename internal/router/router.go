@@ -19,6 +19,7 @@ func InitRouter(e *echo.Echo) {
 	authRoutes(apiV1)
 	userRoutes(apiV1)
 	groupRoutes(apiV1)
+	messageRoutes(apiV1)
 	wsRoutes(e)
 }
 
@@ -106,4 +107,16 @@ func wsRoutes(e *echo.Echo) {
 	wsAPI.Use(middleware.JWTMiddleware())
 	wsAPI.GET("/online", websocket.GetOnlineUsers)
 	wsAPI.GET("/online/:id", websocket.IsUserOnline)
+}
+
+// messageRoutes 消息相关路由
+func messageRoutes(api *echo.Group) {
+	message := api.Group("/message")
+	message.Use(middleware.JWTMiddleware())
+
+	// 获取私聊消息记录
+	message.GET("/private", v1.GetPrivateMessages)
+
+	// 获取群聊消息记录
+	message.GET("/group/:id", v1.GetGroupMessages)
 }

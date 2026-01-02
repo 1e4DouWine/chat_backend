@@ -183,6 +183,47 @@ func (cm *ConnectionManager) GetOnlineUserIDs() []string {
 	return userIDs
 }
 
+// BroadcastToGroup 向指定用户组广播消息
+// 参数:
+//   - msg: 要广播的消息
+//   - targetUserIDs: 目标用户ID列表
+//   - excludeUserIDs: 需要排除的用户ID列表
+func (cm *ConnectionManager) BroadcastToGroup(msg WSMessage, targetUserIDs []string, excludeUserIDs ...string) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	// 构建目标用户集合
+	targetSet := make(map[string]bool)
+	for _, uid := range targetUserIDs {
+		targetSet[uid] = true
+	}
+
+	// 构建排除用户集合
+	exclude := make(map[string]bool)
+	for _, uid := range excludeUserIDs {
+		exclude[uid] = true
+	}
+
+	// 统计成功发送的消息数量
+	sentCount := 0
+	for userID, conn := range cm.connections {
+		// 只向目标用户发送
+		if !targetSet[userID] {
+			continue
+		}
+		// 跳过被排除的用户
+		if exclude[userID] {
+			continue
+		}
+		// 尝试发送消息
+		if conn.Send(msg) {
+			sentCount++
+		}
+	}
+
+	logger.GetLogger().Debugw("Group broadcast completed", "sent_count", sentCount, "target_users", len(targetUserIDs))
+}
+
 // CloseAll 关闭所有连接
 // 用于系统关闭时的清理操作
 func (cm *ConnectionManager) CloseAll() {

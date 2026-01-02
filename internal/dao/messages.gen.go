@@ -33,7 +33,6 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 	_message.TargetID = field.NewString(tableName, "target_id")
 	_message.Type = field.NewString(tableName, "type")
 	_message.Content = field.NewString(tableName, "content")
-	_message.IsOffline = field.NewBool(tableName, "is_offline")
 	_message.CreatedAt = field.NewTime(tableName, "created_at")
 
 	_message.fillFieldMap()
@@ -50,7 +49,6 @@ type message struct {
 	TargetID   field.String
 	Type       field.String
 	Content    field.String
-	IsOffline  field.Bool
 	CreatedAt  field.Time
 
 	fieldMap map[string]field.Expr
@@ -73,7 +71,6 @@ func (m *message) updateTableName(table string) *message {
 	m.TargetID = field.NewString(table, "target_id")
 	m.Type = field.NewString(table, "type")
 	m.Content = field.NewString(table, "content")
-	m.IsOffline = field.NewBool(table, "is_offline")
 	m.CreatedAt = field.NewTime(table, "created_at")
 
 	m.fillFieldMap()
@@ -91,13 +88,12 @@ func (m *message) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (m *message) fillFieldMap() {
-	m.fieldMap = make(map[string]field.Expr, 7)
+	m.fieldMap = make(map[string]field.Expr, 6)
 	m.fieldMap["id"] = m.ID
 	m.fieldMap["from_user_id"] = m.FromUserID
 	m.fieldMap["target_id"] = m.TargetID
 	m.fieldMap["type"] = m.Type
 	m.fieldMap["content"] = m.Content
-	m.fieldMap["is_offline"] = m.IsOffline
 	m.fieldMap["created_at"] = m.CreatedAt
 }
 

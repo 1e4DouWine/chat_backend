@@ -25,6 +25,7 @@ func main() {
 		model.InvitationCode{},
 		model.FriendRequest{},
 		model.GroupJoinRequest{},
+		model.MessageReceipt{},
 	)
 
 	g.Execute()

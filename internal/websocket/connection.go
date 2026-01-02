@@ -33,6 +33,7 @@ type UserConnection struct {
 // 参数:
 //   - userID: 用户唯一标识符
 //   - conn: WebSocket连接对象
+//
 // 返回:
 //   - *UserConnection: 初始化的用户连接对象
 func NewUserConnection(userID string, conn *websocket.Conn) *UserConnection {
@@ -42,7 +43,7 @@ func NewUserConnection(userID string, conn *websocket.Conn) *UserConnection {
 		ConnectedAt: time.Now(),
 		SendChan:    make(chan WSMessage, 256), // 带缓冲的发送通道，容量256
 		CloseChan:   make(chan struct{}),       // 无缓冲关闭通道
-		closed:      false,                      // 初始状态为未关闭
+		closed:      false,                     // 初始状态为未关闭
 	}
 }
 
@@ -149,7 +150,7 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 			// 创建带超时的写入上下文
 			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			// 向WebSocket连接写入消息
-			if err := uc.Conn.Write(writeCtx, websocket.MessageText, data); err != nil {
+			if err = uc.Conn.Write(writeCtx, websocket.MessageText, data); err != nil {
 				cancel()
 				logger.GetLogger().Errorw("Write message error", "user_id", uc.UserID, "error", err)
 				return
@@ -185,6 +186,7 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 // Send 发送消息到用户的发送通道
 // 参数:
 //   - msg: 要发送的消息
+//
 // 返回:
 //   - bool: 是否成功发送到通道
 func (uc *UserConnection) Send(msg WSMessage) bool {
@@ -227,7 +229,10 @@ func (uc *UserConnection) Close() {
 
 	// 关闭WebSocket连接
 	if uc.Conn != nil {
-		uc.Conn.Close(websocket.StatusNormalClosure, "")
+		err := uc.Conn.Close(websocket.StatusNormalClosure, "")
+		if err != nil {
+			return
+		}
 	}
 
 	logger.GetLogger().Infow("UserConnection closed", "user_id", uc.UserID)

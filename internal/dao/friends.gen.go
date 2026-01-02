@@ -28,9 +28,11 @@ func newFriend(db *gorm.DB, opts ...gen.DOOption) friend {
 
 	tableName := _friend.friendDo.TableName()
 	_friend.ALL = field.NewAsterisk(tableName)
-	_friend.User1ID = field.NewString(tableName, "user1_id")
-	_friend.User2ID = field.NewString(tableName, "user2_id")
+	_friend.UserA = field.NewString(tableName, "user_a")
+	_friend.UserB = field.NewString(tableName, "user_b")
 	_friend.Status = field.NewString(tableName, "status")
+	_friend.IsBlockedByUserA = field.NewBool(tableName, "is_blocked_by_user_a")
+	_friend.IsBlockedByUserB = field.NewBool(tableName, "is_blocked_by_user_b")
 	_friend.CreatedAt = field.NewTime(tableName, "created_at")
 	_friend.DeletedAt = field.NewField(tableName, "deleted_at")
 
@@ -42,12 +44,14 @@ func newFriend(db *gorm.DB, opts ...gen.DOOption) friend {
 type friend struct {
 	friendDo
 
-	ALL       field.Asterisk
-	User1ID   field.String
-	User2ID   field.String
-	Status    field.String
-	CreatedAt field.Time
-	DeletedAt field.Field
+	ALL              field.Asterisk
+	UserA            field.String
+	UserB            field.String
+	Status           field.String
+	IsBlockedByUserA field.Bool
+	IsBlockedByUserB field.Bool
+	CreatedAt        field.Time
+	DeletedAt        field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -64,9 +68,11 @@ func (f friend) As(alias string) *friend {
 
 func (f *friend) updateTableName(table string) *friend {
 	f.ALL = field.NewAsterisk(table)
-	f.User1ID = field.NewString(table, "user1_id")
-	f.User2ID = field.NewString(table, "user2_id")
+	f.UserA = field.NewString(table, "user_a")
+	f.UserB = field.NewString(table, "user_b")
 	f.Status = field.NewString(table, "status")
+	f.IsBlockedByUserA = field.NewBool(table, "is_blocked_by_user_a")
+	f.IsBlockedByUserB = field.NewBool(table, "is_blocked_by_user_b")
 	f.CreatedAt = field.NewTime(table, "created_at")
 	f.DeletedAt = field.NewField(table, "deleted_at")
 
@@ -85,10 +91,12 @@ func (f *friend) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (f *friend) fillFieldMap() {
-	f.fieldMap = make(map[string]field.Expr, 5)
-	f.fieldMap["user1_id"] = f.User1ID
-	f.fieldMap["user2_id"] = f.User2ID
+	f.fieldMap = make(map[string]field.Expr, 7)
+	f.fieldMap["user_a"] = f.UserA
+	f.fieldMap["user_b"] = f.UserB
 	f.fieldMap["status"] = f.Status
+	f.fieldMap["is_blocked_by_user_a"] = f.IsBlockedByUserA
+	f.fieldMap["is_blocked_by_user_b"] = f.IsBlockedByUserB
 	f.fieldMap["created_at"] = f.CreatedAt
 	f.fieldMap["deleted_at"] = f.DeletedAt
 }

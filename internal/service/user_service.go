@@ -14,12 +14,17 @@ import (
 )
 
 const (
-	FriendStatusAccepted = "accepted"
-	FriendStatusPending  = "pending"
-	FriendStatusRejected = "rejected"
-
 	ActionParamAccept = "accept"
 	ActionParamReject = "reject"
+
+	FriendRequestExpireDays = 7
+
+	FriendRequestStatusPending  = "pending"
+	FriendRequestStatusRejected = "rejected"
+
+	FriendStatusNormal    = "normal"
+	FriendStatusBlacklist = "blacklist"
+	FriendStatusRemoved   = "removed"
 )
 
 type UserService struct {
@@ -119,107 +124,139 @@ func clamp(v, min, max byte) byte {
 	return v
 }
 
-// AddFriend 好友申请
-func (s *UserService) AddFriend(ctx context.Context, userID string, friendID string) (*dto.AddFriendResponse, error) {
-	q := dao.Use(s.db).Friend
-	do := q.WithContext(ctx)
-
-	// 检查是否已存在好友关系或申请记录
-	existingRecord, err := do.Where(
-		q.User1ID.Eq(userID),
-		q.User2ID.Eq(friendID),
+// SendAddFriendRequest 发送添加好友申请
+func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, friendID string) (*dto.AddFriendResponse, error) {
+	// 1. 检查 Friend 表是否已存在好友关系
+	friendQ := dao.Use(s.db).Friend
+	friendDo := friendQ.WithContext(ctx)
+	existingFriend, err := friendDo.Where(
+		friendQ.UserA.Eq(userID),
+		friendQ.UserB.Eq(friendID),
 	).Or(
-		q.User1ID.Eq(friendID),
-		q.User2ID.Eq(userID),
+		friendQ.UserA.Eq(friendID),
+		friendQ.UserB.Eq(userID),
 	).First()
+	if err == nil && existingFriend.Status == FriendStatusNormal {
+		return nil, fmt.Errorf("你们已经是好友了")
+	}
 
+	// 2. 检查 FriendRequest 表是否有未过期的 pending 申请
+	requestQ := dao.Use(s.db).FriendRequest
+	requestDo := requestQ.WithContext(ctx)
+	expireTime := time.Now().AddDate(0, 0, -FriendRequestExpireDays)
+	// 检查我是否发送过未过期的申请
+	r, err := requestDo.Where(
+		requestQ.SenderID.Eq(userID),
+		requestQ.ReceiverID.Eq(friendID),
+		requestQ.CreatedAt.Gt(expireTime),
+	).First()
+	if err != nil {
+		return nil, err
+	}
+	if r.Status == FriendRequestStatusPending {
+		return nil, fmt.Errorf("您已经发送过好友申请，正在等待对方处理")
+	} else if r.Status == FriendRequestStatusRejected {
+		return nil, fmt.Errorf("对方已拒绝您的好友申请，请七天后再试")
+	}
+	// 检查对方是否发送过未过期的申请
+	_, err = requestDo.Where(
+		requestQ.SenderID.Eq(friendID),
+		requestQ.ReceiverID.Eq(userID),
+		requestQ.Status.Eq(FriendRequestStatusPending),
+		requestQ.CreatedAt.Gt(expireTime),
+	).First()
 	if err == nil {
-		// 记录已存在，检查状态
-		switch existingRecord.Status {
-		case FriendStatusPending:
-			if existingRecord.User1ID == userID {
-				// 我已经发送过申请，还在等待中
-				return nil, fmt.Errorf("您已经发送过好友申请，正在等待对方处理")
-			} else {
-				// 对方已经给我发送了申请，我应该去处理，而不是重复发送
-				return nil, fmt.Errorf("对方已经向您发送了好友申请，请在待处理申请中查看")
-			}
-		case FriendStatusAccepted:
-			return nil, fmt.Errorf("你们已经是好友了")
-		case FriendStatusRejected:
-			// 如果之前被拒绝，允许重新发送，但需要更新记录而不是创建新的
-			existingRecord.Status = FriendStatusPending
-			existingRecord.CreatedAt = time.Now() // 重置时间
-			if err := do.Save(existingRecord); err != nil {
-				return nil, err
-			}
-			return &dto.AddFriendResponse{
-				FriendID: friendID,
-				Status:   FriendStatusPending,
-			}, nil
-		}
+		return nil, fmt.Errorf("对方已经向您发送了好友申请，请在待处理申请中查看")
 	}
 
-	// 不存在记录，创建新的申请
-	record := model.Friend{
-		User1ID: userID,
-		User2ID: friendID,
-		Status:  FriendStatusPending,
+	// 3. 向 FriendRequest 表插入 pending 记录
+	record := model.FriendRequest{
+		SenderID:   userID,
+		ReceiverID: friendID,
+		Status:     FriendRequestStatusPending,
 	}
-
-	if err := do.Create(&record); err != nil {
+	if err := requestDo.Create(&record); err != nil {
 		return nil, err
 	}
 
 	return &dto.AddFriendResponse{
 		FriendID: friendID,
-		Status:   FriendStatusPending,
+		Status:   FriendRequestStatusPending,
 	}, nil
 }
 
 // GetFriendList 获取好友列表
 func (s *UserService) GetFriendList(ctx context.Context, userID string, status string) ([]*dto.FriendInfoResponse, error) {
-	q := dao.Use(s.db).Friend
-	do := q.WithContext(ctx)
+	if status == FriendRequestStatusPending {
+		// 查询待处理的好友申请：别人发给我的申请（ReceiverID = userID）
+		return s.getPendingFriendRequests(ctx, userID)
+	} else if status == FriendStatusNormal {
+		// 查询已接受的好友：Friend表中Status为normal的记录
+		return s.getAcceptedFriends(ctx, userID)
+	}
+
+	return nil, fmt.Errorf("无效的status参数")
+}
+
+func (s *UserService) getPendingFriendRequests(ctx context.Context, userID string) ([]*dto.FriendInfoResponse, error) {
+	requestQ := dao.Use(s.db).FriendRequest
+	requestDo := requestQ.WithContext(ctx)
+
+	expireTime := time.Now().AddDate(0, 0, -FriendRequestExpireDays)
+
+	var requests []model.FriendRequest
+	err := requestDo.Where(
+		requestQ.ReceiverID.Eq(userID),
+		requestQ.Status.Eq(FriendRequestStatusPending),
+		requestQ.CreatedAt.Gt(expireTime),
+	).Scan(&requests)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(requests) == 0 {
+		return []*dto.FriendInfoResponse{}, nil
+	}
+
+	responses := make([]*dto.FriendInfoResponse, 0, len(requests))
+	for _, r := range requests {
+		username, err := s.GetUsernameByUserID(ctx, r.SenderID)
+		if err != nil {
+			username = "unknown"
+		}
+		avatarUrl, err := s.GetUserAvatarUrl(r.SenderID, username)
+		if err != nil {
+			avatarUrl = "unknown"
+		}
+
+		responses = append(responses, &dto.FriendInfoResponse{
+			UserID:   r.SenderID,
+			Username: username,
+			Avatar:   avatarUrl,
+			Status:   r.Status,
+			CreateAt: r.CreatedAt.Unix(),
+		})
+	}
+
+	return responses, nil
+}
+
+func (s *UserService) getAcceptedFriends(ctx context.Context, userID string) ([]*dto.FriendInfoResponse, error) {
+	friendQ := dao.Use(s.db).Friend
+	friendDo := friendQ.WithContext(ctx)
 
 	var friends []model.Friend
+	err := friendDo.Where(
+		friendQ.UserA.Eq(userID),
+		friendQ.Status.Eq(FriendStatusNormal),
+	).Or(
+		friendQ.UserB.Eq(userID),
+		friendQ.Status.Eq(FriendStatusNormal),
+	).Scan(&friends)
 
-	// 根据状态处理不同的查询逻辑
-	if status == FriendStatusPending {
-		// 查询待处理的好友申请：别人发给我的申请（User2ID = userID）
-		err := do.Where(
-			q.User2ID.Eq(userID),
-			q.Status.Eq(status),
-		).Scan(&friends)
-		if err != nil {
-			return nil, err
-		}
-	} else if status == FriendStatusAccepted {
-		// 查询已接受的好友：需要查询两个方向
-		// 1. 我发出的被接受的：User1ID = userID, status = accepted
-		// 2. 别人发给我被我接受的：User2ID = userID, status = accepted
-		err := do.Where(
-			q.User1ID.Eq(userID),
-			q.Status.Eq(status),
-		).Or(
-			q.User2ID.Eq(userID),
-			q.Status.Eq(status),
-		).Scan(&friends)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// 其他状态的查询，理论上不会到这
-		err := do.Where(
-			q.User1ID.Eq(userID),
-			q.Status.Eq(status),
-		).Or(
-			q.User2ID.Eq(userID),
-			q.Status.Eq(status),
-		).Scan(&friends)
-		if err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
 
 	if len(friends) == 0 {
@@ -228,12 +265,11 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 
 	responses := make([]*dto.FriendInfoResponse, 0, len(friends))
 	for _, f := range friends {
-		// 确定对方的 UserID
 		var friendUserID string
-		if f.User1ID == userID {
-			friendUserID = f.User2ID
+		if f.UserA == userID {
+			friendUserID = f.UserB
 		} else {
-			friendUserID = f.User1ID
+			friendUserID = f.UserA
 		}
 
 		username, err := s.GetUsernameByUserID(ctx, friendUserID)
@@ -259,75 +295,99 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 
 // ProcessFriendRequest 处理好友申请
 func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, friendID string, action string) (*dto.AddFriendResponse, error) {
-	// UserA 向 UserB 发送好友申请，此时 friend 表中的 status 应该是 pending
-	// UserB 对 UserA 发出的好友申请进行操作，传入的 action 为 accept 表示通过好友申请，reject 表示拒绝
-	// 注意：好友申请记录是 (UserA, UserB)，所以当 UserB 处理时，需要查询 User2ID = userID 的记录
-	q := dao.Use(s.db).Friend
-	do := q.WithContext(ctx)
+	// 查询 FriendRequest 表中待处理的申请
+	requestQ := dao.Use(s.db).FriendRequest
+	requestDo := requestQ.WithContext(ctx)
 
-	// 查找好友申请记录：UserA 向 UserB 发送的申请
-	// 所以 User1ID = friendID, User2ID = userID
-	_, err := do.Where(
-		q.User1ID.Eq(friendID),
-		q.User2ID.Eq(userID),
-		q.Status.Eq(FriendStatusPending),
+	expireTime := time.Now().AddDate(0, 0, -FriendRequestExpireDays)
+
+	// 查找好友申请记录：SenderID = friendID, ReceiverID = userID, Status = pending, 未过期
+	_, err := requestDo.Where(
+		requestQ.SenderID.Eq(friendID),
+		requestQ.ReceiverID.Eq(userID),
+		requestQ.Status.Eq(FriendRequestStatusPending),
+		requestQ.CreatedAt.Gt(expireTime),
 	).First()
+
 	if err != nil {
 		return nil, fmt.Errorf("未找到待处理的好友申请")
 	}
 
-	var newStatus string
 	if action == ActionParamAccept {
-		newStatus = FriendStatusAccepted
+		// 接受好友申请：在Friend表创建normal记录
+		friendQ := dao.Use(s.db).Friend
+		friendDo := friendQ.WithContext(ctx)
+
+		friendRecord := model.Friend{
+			UserA:  friendID,
+			UserB:  userID,
+			Status: FriendStatusNormal,
+		}
+
+		if err := friendDo.Create(&friendRecord); err != nil {
+			return nil, fmt.Errorf("创建好友关系失败: %v", err)
+		}
+
+		// 删除FriendRequest表中的对应记录（软删除）
+		if _, err := requestDo.Where(
+			requestQ.SenderID.Eq(friendID),
+			requestQ.ReceiverID.Eq(userID),
+		).Delete(); err != nil {
+			return nil, fmt.Errorf("删除好友申请记录失败: %v", err)
+		}
+
+		return &dto.AddFriendResponse{
+			FriendID: friendID,
+			Status:   FriendStatusNormal,
+		}, nil
 	} else if action == ActionParamReject {
-		newStatus = FriendStatusRejected
-	}
+		// 拒绝好友申请：更新FriendRequest状态为rejected
+		if _, err := requestDo.Where(
+			requestQ.SenderID.Eq(friendID),
+			requestQ.ReceiverID.Eq(userID),
+		).Update(requestQ.Status, FriendRequestStatusRejected); err != nil {
+			return nil, fmt.Errorf("拒绝好友申请失败: %v", err)
+		}
 
-	// 更新状态
-	_, err = do.Where(
-		q.User1ID.Eq(friendID),
-		q.User2ID.Eq(userID),
-	).Update(q.Status, newStatus)
-	if err != nil {
-		return nil, err
+		return &dto.AddFriendResponse{
+			FriendID: friendID,
+			Status:   FriendRequestStatusRejected,
+		}, nil
 	}
-
-	return &dto.AddFriendResponse{
-		FriendID: friendID,
-		Status:   newStatus,
-	}, nil
+	// 理论上不会跑到这里
+	return nil, fmt.Errorf("无效的参数")
 }
 
 // DeleteFriend 删除好友
 func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID string) error {
-	q := dao.Use(s.db).Friend
-	do := q.WithContext(ctx)
+	friendQ := dao.Use(s.db).Friend
+	friendDo := friendQ.WithContext(ctx)
 
 	// 查找好友关系记录（双向查找）
-	// 情况1: userID 是 User1ID, friendID 是 User2ID
-	// 情况2: userID 是 User2ID, friendID 是 User1ID
-	record, err := do.Where(
-		q.User1ID.Eq(userID),
-		q.User2ID.Eq(friendID),
+	// 情况1: userID 是 UserA, friendID 是 UserB
+	// 情况2: userID 是 UserB, friendID 是 UserA
+	record, err := friendDo.Where(
+		friendQ.UserA.Eq(userID),
+		friendQ.UserB.Eq(friendID),
 	).Or(
-		q.User1ID.Eq(friendID),
-		q.User2ID.Eq(userID),
+		friendQ.UserA.Eq(friendID),
+		friendQ.UserB.Eq(userID),
 	).First()
 
 	if err != nil {
 		return fmt.Errorf("好友关系不存在")
 	}
 
-	// 验证权限：只能删除状态为 accepted 的好友关系，或者删除自己发出的 pending 申请
-	if record.Status == FriendStatusPending && record.User1ID != userID {
-		return fmt.Errorf("不能删除别人发给您的申请，请使用拒绝功能")
+	// 验证权限：只能删除状态为 normal 的好友关系
+	if record.Status != FriendStatusNormal {
+		return fmt.Errorf("只能删除正常的好友关系")
 	}
 
-	// 执行删除（软删除，GORM 会自动处理 DeletedAt）
-	_, err = do.Where(
-		q.User1ID.Eq(record.User1ID),
-		q.User2ID.Eq(record.User2ID),
-	).Delete()
+	// 更新状态为 removed
+	_, err = friendDo.Where(
+		friendQ.UserA.Eq(record.UserA),
+		friendQ.UserB.Eq(record.UserB),
+	).Update(friendQ.Status, FriendStatusRemoved)
 
 	if err != nil {
 		return fmt.Errorf("删除好友失败: %v", err)

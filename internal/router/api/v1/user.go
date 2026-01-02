@@ -47,7 +47,7 @@ func SearchUser(c echo.Context) error {
 	if username == c.Get(global.JwtKeyUserName).(string) {
 		return response.Error(c, errors.ErrCodeInvalidRequest, "can not search yourself")
 	}
-	
+
 	userService := service.NewUserService(database.GetDB())
 	userID, err := userService.GetUserIDByUsername(ctx, username)
 	if err != nil {
@@ -79,7 +79,7 @@ func AddFriend(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeUserNotFound, errors.GetMessage(errors.ErrCodeUserNotFound))
 	}
 
-	resp, err := userService.AddFriend(ctx, userID, friendID)
+	resp, err := userService.SendAddFriendRequest(ctx, userID, friendID)
 	if err != nil {
 		return response.Error(c, errors.ErrCodeFailedToAddFriend, err.Error())
 	}
@@ -91,8 +91,8 @@ func GetFriendList(c echo.Context) error {
 	ctx := c.Request().Context()
 	status := c.QueryParam(getFriendListQueryParam)
 	if status == "" {
-		status = service.FriendStatusAccepted
-	} else if status != service.FriendStatusPending && status != service.FriendStatusAccepted {
+		status = service.FriendStatusNormal
+	} else if status != service.FriendRequestStatusPending && status != service.FriendStatusNormal {
 		return response.Error(c, errors.ErrCodeInvalidStatus, errors.GetMessage(errors.ErrCodeInvalidStatus))
 	}
 

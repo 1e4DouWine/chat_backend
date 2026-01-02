@@ -25,5 +25,5 @@ type AddFriendRequest struct {
 // AddFriendResponse 好友申请响应
 type AddFriendResponse struct {
 	FriendID string `json:"friend_id"`
-	Status   string `json:"status"` // pending | accepted
+	Status   string `json:"status"` // pending | normal | rejected
 }

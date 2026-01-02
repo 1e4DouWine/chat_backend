@@ -16,6 +16,7 @@ func Migrate() error {
 		&model.User{},
 		&model.Message{},
 		&model.Friend{},
+		&model.FriendRequest{},
 		&model.Group{},
 		&model.GroupMember{},
 		&model.InvitationCode{},
@@ -35,10 +36,10 @@ func Migrate() error {
 
 // createIndexes 创建额外的数据库索引
 func createIndexes(db *gorm.DB) error {
-	// 为Friend表创建复合索引
+	// 为Friend表创建复合索引（基于UserA和UserB字段）
 	if err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_friends_user1_user2 
-		ON friends (user1_id, user2_id) 
+		CREATE INDEX IF NOT EXISTS idx_friends_user_a_user_b 
+		ON friends (user_a, user_b) 
 		WHERE deleted_at IS NULL
 	`).Error; err != nil {
 		return fmt.Errorf("创建friends复合索引失败: %w", err)
@@ -46,8 +47,8 @@ func createIndexes(db *gorm.DB) error {
 
 	// 为Friend表创建反向复合索引
 	if err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_friends_user2_user1 
-		ON friends (user2_id, user1_id) 
+		CREATE INDEX IF NOT EXISTS idx_friends_user_b_user_a 
+		ON friends (user_b, user_a) 
 		WHERE deleted_at IS NULL
 	`).Error; err != nil {
 		return fmt.Errorf("创建friends反向复合索引失败: %w", err)
@@ -71,14 +72,6 @@ func createIndexes(db *gorm.DB) error {
 		return fmt.Errorf("创建group_members用户索引失败: %w", err)
 	}
 
-	// 为Message表优化索引
-	if err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_messages_created_at 
-		ON messages (created_at DESC)
-	`).Error; err != nil {
-		return fmt.Errorf("创建messages时间索引失败: %w", err)
-	}
-
 	return nil
 }
 
@@ -94,6 +87,7 @@ func DropTables() error {
 		&model.Group{},
 		&model.User{},
 		&model.InvitationCode{},
+		&model.FriendRequest{},
 	}
 
 	for _, table := range tables {

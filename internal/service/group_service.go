@@ -16,6 +16,12 @@ const (
 	RoleMember = "member"
 )
 
+const (
+	StatusPending  = "pending"
+	StatusRejected = "rejected"
+	StatusApproved = "approved"
+)
+
 type GroupService struct {
 	db *gorm.DB
 }
@@ -231,6 +237,67 @@ func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID str
 		GroupID: group.ID,
 		Name:    group.Name,
 		Status:  "joined",
+	}, nil
+}
+
+// RequestJoinGroup 申请加入群组
+func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, groupID string, message string) (*dto.RequestJoinGroupResponse, error) {
+	gq := dao.Use(s.db).Group
+	gdo := gq.WithContext(ctx)
+
+	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
+	if err != nil {
+		return nil, fmt.Errorf("group not found")
+	}
+
+	mq := dao.Use(s.db).GroupMember
+	mdo := mq.WithContext(ctx)
+
+	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
+	if err == nil {
+		return nil, fmt.Errorf("already in group")
+	}
+
+	rq := dao.Use(s.db).GroupJoinRequest
+	rdo := rq.WithContext(ctx)
+
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+
+	_, err = rdo.Where(
+		rq.SenderID.Eq(userID),
+		rq.TargetGroupID.Eq(groupID),
+		rq.Status.Eq(StatusPending),
+		rq.CreatedAt.Gte(sevenDaysAgo),
+	).First()
+	if err == nil {
+		return nil, fmt.Errorf("pending request already exists")
+	}
+
+	_, err = rdo.Where(
+		rq.SenderID.Eq(userID),
+		rq.TargetGroupID.Eq(groupID),
+		rq.Status.Eq(StatusRejected),
+		rq.CreatedAt.Gte(sevenDaysAgo),
+	).First()
+	if err == nil {
+		return nil, fmt.Errorf("cannot request within cooldown period")
+	}
+
+	joinRequest := model.GroupJoinRequest{
+		SenderID:      userID,
+		TargetGroupID: groupID,
+		Status:        StatusPending,
+		Message:       message,
+	}
+
+	if err := rdo.Create(&joinRequest); err != nil {
+		return nil, err
+	}
+
+	return &dto.RequestJoinGroupResponse{
+		GroupID: group.ID,
+		Name:    group.Name,
+		Status:  "pending",
 	}, nil
 }
 
@@ -487,4 +554,151 @@ func (s *GroupService) SearchGroup(ctx context.Context, groupName string) ([]*dt
 	}
 
 	return responses, nil
+}
+
+// GetPendingJoinRequests 获取待审核的入群请求
+func (s *GroupService) GetPendingJoinRequests(ctx context.Context, userID string) ([]*dto.PendingJoinRequest, error) {
+	gq := dao.Use(s.db).Group
+	gdo := gq.WithContext(ctx)
+
+	groups, err := gdo.Where(gq.OwnerID.Eq(userID)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(groups) == 0 {
+		return []*dto.PendingJoinRequest{}, nil
+	}
+
+	groupIDs := make([]string, 0, len(groups))
+	for _, group := range groups {
+		groupIDs = append(groupIDs, group.ID)
+	}
+
+	rq := dao.Use(s.db).GroupJoinRequest
+	rdo := rq.WithContext(ctx)
+
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+
+	var requests []model.GroupJoinRequest
+	err = rdo.Where(
+		rq.TargetGroupID.In(groupIDs...),
+		rq.Status.Eq(StatusPending),
+		rq.CreatedAt.Gte(sevenDaysAgo),
+	).Scan(&requests)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(requests) == 0 {
+		return []*dto.PendingJoinRequest{}, nil
+	}
+
+	uq := dao.Use(s.db).User
+	udo := uq.WithContext(ctx)
+
+	responses := make([]*dto.PendingJoinRequest, 0, len(requests))
+	for _, req := range requests {
+		user, err := udo.Where(uq.ID.Eq(req.SenderID)).First()
+		if err != nil {
+			continue
+		}
+
+		groupName := ""
+		for _, group := range groups {
+			if group.ID == req.TargetGroupID {
+				groupName = group.Name
+				break
+			}
+		}
+
+		responses = append(responses, &dto.PendingJoinRequest{
+			RequestID:    req.ID,
+			GroupID:      req.TargetGroupID,
+			GroupName:    groupName,
+			UserID:       req.SenderID,
+			Username:     user.Username,
+			Message:      req.Message,
+			CreatedAt:    req.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return responses, nil
+}
+
+// ApproveJoinRequest 审批入群请求
+func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, groupID string, senderID string, action string) error {
+	gq := dao.Use(s.db).Group
+	gdo := gq.WithContext(ctx)
+
+	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
+	if err != nil {
+		return fmt.Errorf("group not found")
+	}
+
+	if group.OwnerID != userID {
+		return fmt.Errorf("permission denied")
+	}
+
+	rq := dao.Use(s.db).GroupJoinRequest
+	rdo := rq.WithContext(ctx)
+
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+
+	joinRequest, err := rdo.Where(
+		rq.TargetGroupID.Eq(groupID),
+		rq.SenderID.Eq(senderID),
+		rq.Status.Eq(StatusPending),
+		rq.CreatedAt.Gte(sevenDaysAgo),
+	).First()
+	if err != nil {
+		return fmt.Errorf("join request not found")
+	}
+
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if action == "approve" {
+			mq := dao.Use(tx).GroupMember
+			mdo := mq.WithContext(ctx)
+
+			_, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(senderID)).First()
+			if err == nil {
+				return fmt.Errorf("already in group")
+			}
+
+			groupMember := model.GroupMember{
+				GroupID: groupID,
+				UserID:  senderID,
+				Role:    RoleMember,
+			}
+
+			if err := mdo.Create(&groupMember); err != nil {
+				return err
+			}
+
+			_, err = gdo.Where(gq.ID.Eq(groupID)).UpdateSimple(gq.MemberCount.Add(1))
+			if err != nil {
+				return err
+			}
+
+			_, err = rdo.Where(
+				rq.ID.Eq(joinRequest.ID),
+			).Delete()
+			if err != nil {
+				return err
+			}
+		} else if action == "reject" {
+			_, err := rdo.Where(
+				rq.ID.Eq(joinRequest.ID),
+			).Update(rq.Status, StatusRejected)
+			if err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("invalid action")
+		}
+
+		return nil
+	})
+
+	return err
 }

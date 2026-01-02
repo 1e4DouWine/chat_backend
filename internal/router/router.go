@@ -67,11 +67,20 @@ func groupRoutes(api *echo.Group) {
 	// 搜索群组
 	group.GET("/search", v1.SearchGroup)
 
+	// 申请加入群组
+	group.POST("/:id/request-join", v1.RequestJoinGroup)
+
+	// 获取待审核的入群请求
+	group.GET("/join-requests", v1.GetPendingJoinRequests)
+
+	// 审批入群请求
+	group.POST("/:id/join-requests/:user_id/approve", v1.ApproveJoinRequest)
+
 	// 加入群组
 	//group.POST("/:id/join", v1.JoinGroup)
 
 	// 通过邀请码加入群组
-	group.POST("/join-by-code", v1.JoinGroupByCode)
+	//group.POST("/join-by-code", v1.JoinGroupByCode)
 
 	// 退出群组
 	group.POST("/:id/leave", v1.LeaveGroup)

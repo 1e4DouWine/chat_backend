@@ -20,6 +20,7 @@ func Migrate() error {
 		&model.Group{},
 		&model.GroupMember{},
 		&model.InvitationCode{},
+		&model.GroupJoinRequest{},
 	)
 
 	if err != nil {
@@ -88,6 +89,7 @@ func DropTables() error {
 		&model.User{},
 		&model.InvitationCode{},
 		&model.FriendRequest{},
+		&model.GroupJoinRequest{},
 	}
 
 	for _, table := range tables {

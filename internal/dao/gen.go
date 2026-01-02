@@ -16,14 +16,15 @@ import (
 )
 
 var (
-	Q              = new(Query)
-	Friend         *friend
-	FriendRequest  *friendRequest
-	Group          *group
-	GroupMember    *groupMember
-	InvitationCode *invitationCode
-	Message        *message
-	User           *user
+	Q                = new(Query)
+	Friend           *friend
+	FriendRequest    *friendRequest
+	Group            *group
+	GroupJoinRequest *groupJoinRequest
+	GroupMember      *groupMember
+	InvitationCode   *invitationCode
+	Message          *message
+	User             *user
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -31,6 +32,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	Friend = &Q.Friend
 	FriendRequest = &Q.FriendRequest
 	Group = &Q.Group
+	GroupJoinRequest = &Q.GroupJoinRequest
 	GroupMember = &Q.GroupMember
 	InvitationCode = &Q.InvitationCode
 	Message = &Q.Message
@@ -39,41 +41,44 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:             db,
-		Friend:         newFriend(db, opts...),
-		FriendRequest:  newFriendRequest(db, opts...),
-		Group:          newGroup(db, opts...),
-		GroupMember:    newGroupMember(db, opts...),
-		InvitationCode: newInvitationCode(db, opts...),
-		Message:        newMessage(db, opts...),
-		User:           newUser(db, opts...),
+		db:               db,
+		Friend:           newFriend(db, opts...),
+		FriendRequest:    newFriendRequest(db, opts...),
+		Group:            newGroup(db, opts...),
+		GroupJoinRequest: newGroupJoinRequest(db, opts...),
+		GroupMember:      newGroupMember(db, opts...),
+		InvitationCode:   newInvitationCode(db, opts...),
+		Message:          newMessage(db, opts...),
+		User:             newUser(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	Friend         friend
-	FriendRequest  friendRequest
-	Group          group
-	GroupMember    groupMember
-	InvitationCode invitationCode
-	Message        message
-	User           user
+	Friend           friend
+	FriendRequest    friendRequest
+	Group            group
+	GroupJoinRequest groupJoinRequest
+	GroupMember      groupMember
+	InvitationCode   invitationCode
+	Message          message
+	User             user
 }
 
 func (q *Query) Available() bool { return q.db != nil }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:             db,
-		Friend:         q.Friend.clone(db),
-		FriendRequest:  q.FriendRequest.clone(db),
-		Group:          q.Group.clone(db),
-		GroupMember:    q.GroupMember.clone(db),
-		InvitationCode: q.InvitationCode.clone(db),
-		Message:        q.Message.clone(db),
-		User:           q.User.clone(db),
+		db:               db,
+		Friend:           q.Friend.clone(db),
+		FriendRequest:    q.FriendRequest.clone(db),
+		Group:            q.Group.clone(db),
+		GroupJoinRequest: q.GroupJoinRequest.clone(db),
+		GroupMember:      q.GroupMember.clone(db),
+		InvitationCode:   q.InvitationCode.clone(db),
+		Message:          q.Message.clone(db),
+		User:             q.User.clone(db),
 	}
 }
 
@@ -87,36 +92,39 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:             db,
-		Friend:         q.Friend.replaceDB(db),
-		FriendRequest:  q.FriendRequest.replaceDB(db),
-		Group:          q.Group.replaceDB(db),
-		GroupMember:    q.GroupMember.replaceDB(db),
-		InvitationCode: q.InvitationCode.replaceDB(db),
-		Message:        q.Message.replaceDB(db),
-		User:           q.User.replaceDB(db),
+		db:               db,
+		Friend:           q.Friend.replaceDB(db),
+		FriendRequest:    q.FriendRequest.replaceDB(db),
+		Group:            q.Group.replaceDB(db),
+		GroupJoinRequest: q.GroupJoinRequest.replaceDB(db),
+		GroupMember:      q.GroupMember.replaceDB(db),
+		InvitationCode:   q.InvitationCode.replaceDB(db),
+		Message:          q.Message.replaceDB(db),
+		User:             q.User.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	Friend         IFriendDo
-	FriendRequest  IFriendRequestDo
-	Group          IGroupDo
-	GroupMember    IGroupMemberDo
-	InvitationCode IInvitationCodeDo
-	Message        IMessageDo
-	User           IUserDo
+	Friend           IFriendDo
+	FriendRequest    IFriendRequestDo
+	Group            IGroupDo
+	GroupJoinRequest IGroupJoinRequestDo
+	GroupMember      IGroupMemberDo
+	InvitationCode   IInvitationCodeDo
+	Message          IMessageDo
+	User             IUserDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		Friend:         q.Friend.WithContext(ctx),
-		FriendRequest:  q.FriendRequest.WithContext(ctx),
-		Group:          q.Group.WithContext(ctx),
-		GroupMember:    q.GroupMember.WithContext(ctx),
-		InvitationCode: q.InvitationCode.WithContext(ctx),
-		Message:        q.Message.WithContext(ctx),
-		User:           q.User.WithContext(ctx),
+		Friend:           q.Friend.WithContext(ctx),
+		FriendRequest:    q.FriendRequest.WithContext(ctx),
+		Group:            q.Group.WithContext(ctx),
+		GroupJoinRequest: q.GroupJoinRequest.WithContext(ctx),
+		GroupMember:      q.GroupMember.WithContext(ctx),
+		InvitationCode:   q.InvitationCode.WithContext(ctx),
+		Message:          q.Message.WithContext(ctx),
+		User:             q.User.WithContext(ctx),
 	}
 }
 

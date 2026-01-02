@@ -80,3 +80,31 @@ type SearchGroupResponse struct {
 	MemberCount int    `json:"member_count"`
 	CreatedAt   string `json:"created_at"`
 }
+
+// RequestJoinGroupRequest 申请加入群组请求
+type RequestJoinGroupRequest struct {
+	Message string `json:"message"` // 申请消息（可选）
+}
+
+// RequestJoinGroupResponse 申请加入群组响应
+type RequestJoinGroupResponse struct {
+	GroupID string `json:"group_id"`
+	Name    string `json:"name"`
+	Status  string `json:"status"` // pending
+}
+
+// PendingJoinRequest 待审核的入群请求信息
+type PendingJoinRequest struct {
+	RequestID uint   `json:"request_id"`
+	GroupID   string `json:"group_id"`
+	GroupName string `json:"group_name"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ApproveJoinRequestRequest 审批入群请求
+type ApproveJoinRequestRequest struct {
+	Action string `json:"action"` // approve 或 reject
+}

@@ -3,3 +3,5 @@ logs/
 configs/*.yaml
 .trae/
 chat_backend.exe
+.idea/
+docs/

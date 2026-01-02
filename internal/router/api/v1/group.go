@@ -276,3 +276,96 @@ func SearchGroup(c echo.Context) error {
 
 	return response.Success(c, groups)
 }
+
+// RequestJoinGroup 申请加入群组
+func RequestJoinGroup(c echo.Context) error {
+	ctx := c.Request().Context()
+	groupID := c.Param("id")
+	if groupID == "" {
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+	}
+
+	var req dto.RequestJoinGroupRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
+	}
+
+	userID := c.Get(global.JwtKeyUserID).(string)
+
+	groupService := service.NewGroupService(database.GetDB())
+	result, err := groupService.RequestJoinGroup(ctx, userID, groupID, req.Message)
+	if err != nil {
+		switch err.Error() {
+		case "group not found":
+			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
+		case "already in group":
+			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
+		case "pending request already exists":
+			return response.Error(c, errors.ErrCodeAlreadyRequested, err.Error())
+		case "cannot request within cooldown period":
+			return response.Error(c, errors.ErrCodeCannotRequestWithinCooldown, err.Error())
+		default:
+			return response.Error(c, errors.ErrCodeFailedToRequestJoinGroup, err.Error())
+		}
+	}
+
+	return response.Success(c, result)
+}
+
+// GetPendingJoinRequests 获取待审核的入群请求
+func GetPendingJoinRequests(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	userID := c.Get(global.JwtKeyUserID).(string)
+
+	groupService := service.NewGroupService(database.GetDB())
+	requests, err := groupService.GetPendingJoinRequests(ctx, userID)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeInternalError, err.Error())
+	}
+
+	return response.Success(c, requests)
+}
+
+// ApproveJoinRequest 审批入群请求
+func ApproveJoinRequest(c echo.Context) error {
+	ctx := c.Request().Context()
+	groupID := c.Param("id")
+	senderID := c.Param("user_id")
+
+	if groupID == "" || senderID == "" {
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id and user id are required")
+	}
+
+	var req dto.ApproveJoinRequestRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
+	}
+
+	if req.Action != "approve" && req.Action != "reject" {
+		return response.Error(c, errors.ErrCodeInvalidAction, "action must be approve or reject")
+	}
+
+	userID := c.Get(global.JwtKeyUserID).(string)
+
+	groupService := service.NewGroupService(database.GetDB())
+	err := groupService.ApproveJoinRequest(ctx, userID, groupID, senderID, req.Action)
+	if err != nil {
+		switch err.Error() {
+		case "group not found":
+			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
+		case "permission denied":
+			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
+		case "join request not found":
+			return response.Error(c, errors.ErrCodeJoinRequestNotFound, err.Error())
+		case "invalid action":
+			return response.Error(c, errors.ErrCodeInvalidAction, err.Error())
+		case "already in group":
+			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
+		default:
+			return response.Error(c, errors.ErrCodeFailedToApproveJoinRequest, err.Error())
+		}
+	}
+
+	return response.Success(c, nil)
+}

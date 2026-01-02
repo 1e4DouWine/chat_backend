@@ -47,6 +47,11 @@ const (
 	ErrCodeInvalidInviteCode      = 5022
 	ErrCodeAlreadyInGroup         = 5023
 	ErrCodeCannotLeaveAsOwner     = 5024
+	ErrCodeFailedToRequestJoinGroup      = 5025
+	ErrCodeJoinRequestNotFound           = 5026
+	ErrCodeFailedToApproveJoinRequest    = 5027
+	ErrCodeCannotRequestWithinCooldown  = 5028
+	ErrCodeAlreadyRequested             = 5029
 )
 
 var (
@@ -80,10 +85,15 @@ var (
 		ErrCodeFailedToDisbandGroup:   "failed to disband group",
 		ErrCodeFailedToTransferGroup:  "failed to transfer group",
 		ErrCodeFailedToRemoveMember:   "failed to remove member",
-		ErrCodeInviteCodeRequired:     "invite code required",
-		ErrCodeInvalidInviteCode:      "invalid invite code",
-		ErrCodeAlreadyInGroup:         "already in group",
-		ErrCodeCannotLeaveAsOwner:     "cannot leave as owner",
+		ErrCodeInviteCodeRequired:           "invite code required",
+		ErrCodeInvalidInviteCode:            "invalid invite code",
+		ErrCodeAlreadyInGroup:               "already in group",
+		ErrCodeCannotLeaveAsOwner:           "cannot leave as owner",
+		ErrCodeFailedToRequestJoinGroup:     "failed to request join group",
+		ErrCodeJoinRequestNotFound:          "join request not found",
+		ErrCodeFailedToApproveJoinRequest:    "failed to approve join request",
+		ErrCodeCannotRequestWithinCooldown:  "cannot request within cooldown period",
+		ErrCodeAlreadyRequested:             "already requested",
 	}
 )
 

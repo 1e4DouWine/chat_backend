@@ -88,9 +88,10 @@ func (s *GroupService) GetGroupList(ctx context.Context, userID string, role str
 
 	// 根据角色筛选
 	query := mdo.Where(mq.UserID.Eq(userID))
-	if role == RoleOwner {
+	switch role {
+	case RoleOwner:
 		query = query.Where(mq.Role.Eq(RoleOwner))
-	} else if role == RoleMember {
+	case RoleMember:
 		query = query.Where(mq.Role.Eq(RoleMember))
 	}
 
@@ -217,7 +218,7 @@ func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID str
 			Role:    RoleMember,
 		}
 
-		if err := mdo.Create(&groupMember); err != nil {
+		if err = mdo.Create(&groupMember); err != nil {
 			return err
 		}
 
@@ -503,7 +504,7 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 			Role:    RoleMember,
 		}
 
-		if err := mdo.Create(&groupMember); err != nil {
+		if err = mdo.Create(&groupMember); err != nil {
 			return err
 		}
 
@@ -613,13 +614,13 @@ func (s *GroupService) GetPendingJoinRequests(ctx context.Context, userID string
 		}
 
 		responses = append(responses, &dto.PendingJoinRequest{
-			RequestID:    req.ID,
-			GroupID:      req.TargetGroupID,
-			GroupName:    groupName,
-			UserID:       req.SenderID,
-			Username:     user.Username,
-			Message:      req.Message,
-			CreatedAt:    req.CreatedAt.Format(time.RFC3339),
+			RequestID: req.ID,
+			GroupID:   req.TargetGroupID,
+			GroupName: groupName,
+			UserID:    req.SenderID,
+			Username:  user.Username,
+			Message:   req.Message,
+			CreatedAt: req.CreatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -656,11 +657,12 @@ func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, gr
 	}
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if action == "approve" {
+		switch action {
+		case "approve":
 			mq := dao.Use(tx).GroupMember
 			mdo := mq.WithContext(ctx)
 
-			_, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(senderID)).First()
+			_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(senderID)).First()
 			if err == nil {
 				return fmt.Errorf("already in group")
 			}
@@ -671,7 +673,7 @@ func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, gr
 				Role:    RoleMember,
 			}
 
-			if err := mdo.Create(&groupMember); err != nil {
+			if err = mdo.Create(&groupMember); err != nil {
 				return err
 			}
 
@@ -686,14 +688,14 @@ func (s *GroupService) ApproveJoinRequest(ctx context.Context, userID string, gr
 			if err != nil {
 				return err
 			}
-		} else if action == "reject" {
-			_, err := rdo.Where(
+		case "reject":
+			_, err = rdo.Where(
 				rq.ID.Eq(joinRequest.ID),
 			).Update(rq.Status, StatusRejected)
 			if err != nil {
 				return err
 			}
-		} else {
+		default:
 			return fmt.Errorf("invalid action")
 		}
 

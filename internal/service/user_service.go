@@ -153,9 +153,10 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 	if err != nil {
 		return nil, err
 	}
-	if r.Status == FriendRequestStatusPending {
+	switch r.Status {
+	case FriendRequestStatusPending:
 		return nil, fmt.Errorf("您已经发送过好友申请，正在等待对方处理")
-	} else if r.Status == FriendRequestStatusRejected {
+	case FriendRequestStatusRejected:
 		return nil, fmt.Errorf("对方已拒绝您的好友申请，请七天后再试")
 	}
 	// 检查对方是否发送过未过期的申请
@@ -187,10 +188,11 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 
 // GetFriendList 获取好友列表
 func (s *UserService) GetFriendList(ctx context.Context, userID string, status string) ([]*dto.FriendInfoResponse, error) {
-	if status == FriendRequestStatusPending {
+	switch status {
+	case FriendRequestStatusPending:
 		// 查询待处理的好友申请：别人发给我的申请（ReceiverID = userID）
 		return s.getPendingFriendRequests(ctx, userID)
-	} else if status == FriendStatusNormal {
+	case FriendStatusNormal:
 		// 查询已接受的好友：Friend表中Status为normal的记录
 		return s.getAcceptedFriends(ctx, userID)
 	}
@@ -313,7 +315,8 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 		return nil, fmt.Errorf("未找到待处理的好友申请")
 	}
 
-	if action == ActionParamAccept {
+	switch action {
+	case ActionParamAccept:
 		// 接受好友申请：在Friend表创建normal记录
 		friendQ := dao.Use(s.db).Friend
 		friendDo := friendQ.WithContext(ctx)
@@ -340,7 +343,7 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			FriendID: friendID,
 			Status:   FriendStatusNormal,
 		}, nil
-	} else if action == ActionParamReject {
+	case ActionParamReject:
 		// 拒绝好友申请：更新FriendRequest状态为rejected
 		if _, err := requestDo.Where(
 			requestQ.SenderID.Eq(friendID),

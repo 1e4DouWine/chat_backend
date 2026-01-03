@@ -130,7 +130,7 @@ func HandleWebSocket(c echo.Context) error {
 }
 
 const (
-	maxMessageLength = 10000
+	maxMessageLength = 1000
 )
 
 // validateMessageContent 验证消息内容

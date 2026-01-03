@@ -16,11 +16,19 @@ import (
 func GetPrivateMessages(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	userID := c.Get(global.JwtKeyUserID).(string)
-
 	targetUserID := c.QueryParam("target_user_id")
 	if targetUserID == "" {
 		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "target_user_id is required")
+	}
+	userID := c.Get(global.JwtKeyUserID).(string)
+
+	userService := service.NewUserService(database.GetDB())
+	isFriend, err := userService.IsFriend(ctx, userID, targetUserID)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeInternalError, err.Error())
+	}
+	if !isFriend {
+		return response.Error(c, errors.ErrCodePermissionDenied, "You are not in a friend relationship")
 	}
 
 	limitStr := c.QueryParam("limit")
@@ -49,6 +57,16 @@ func GetGroupMessages(c echo.Context) error {
 	groupID := c.Param("id")
 	if groupID == "" {
 		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group_id is required")
+	}
+
+	userID := c.Get(global.JwtKeyUserID).(string)
+	groupService := service.NewGroupService(database.GetDB())
+	isGroupMember, err := groupService.IsGroupMember(ctx, groupID, userID)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeInternalError, err.Error())
+	}
+	if !isGroupMember {
+		return response.Error(c, errors.ErrCodePermissionDenied, "You are not a member of this group")
 	}
 
 	limitStr := c.QueryParam("limit")

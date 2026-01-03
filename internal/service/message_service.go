@@ -30,13 +30,14 @@ func (s *MessageService) GetPrivateMessages(ctx context.Context, userID string, 
 
 	query := do.Where(
 		q.Type.Eq(string(model.MessageTypePrivate)),
-		q.FromUserID.Eq(userID),
-		q.TargetID.Eq(targetUserID),
-	)
-	query = query.Or(
-		q.Type.Eq(string(model.MessageTypePrivate)),
-		q.FromUserID.Eq(targetUserID),
-		q.TargetID.Eq(userID),
+	).Where(
+		do.Where(
+			q.FromUserID.Eq(userID),
+			q.TargetID.Eq(targetUserID),
+		).Or(
+			q.FromUserID.Eq(targetUserID),
+			q.TargetID.Eq(userID),
+		),
 	)
 
 	if cursor != "" {
@@ -225,9 +226,8 @@ func (s *MessageService) SendPrivateMessage(ctx context.Context, fromUserID stri
 	return message, nil
 }
 
-func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string, groupID string, content string, messageID string, onlineUserIDs map[string]bool) (*model.Message, error) {
+func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string, groupID string, content string, messageID string, recipientIDs []string, onlineUserIDs map[string]bool) (*model.Message, error) {
 	var message *model.Message
-	var memberIDs []string
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		q := dao.Use(tx).Message
@@ -248,32 +248,15 @@ func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string
 			return err
 		}
 
-		mq := dao.Use(tx).GroupMember
-		mdo := mq.WithContext(ctx)
-
-		var members []model.GroupMember
-		if err := mdo.Where(mq.GroupID.Eq(groupID)).Scan(&members); err != nil {
-			return err
-		}
-
-		memberIDs = make([]string, 0, len(members))
-		for _, member := range members {
-			memberIDs = append(memberIDs, member.UserID)
-		}
-
 		rq := dao.Use(tx).MessageReceipt
 		rdo := rq.WithContext(ctx)
 
 		var receipts []*model.MessageReceipt
-		for _, memberID := range memberIDs {
-			if memberID == fromUserID {
-				continue
-			}
-
-			if !onlineUserIDs[memberID] {
+		for _, recipientID := range recipientIDs {
+			if !onlineUserIDs[recipientID] {
 				receipt := &model.MessageReceipt{
 					MessageID:   message.ID,
-					UserID:      memberID,
+					UserID:      recipientID,
 					IsDelivered: false,
 				}
 				receipts = append(receipts, receipt)

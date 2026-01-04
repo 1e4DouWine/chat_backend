@@ -1,29 +1,32 @@
 ```
-# Go build artifacts
+# Compiled and build artifacts
 *.o
-*.a
-*.so
-*.exe
+*.obj
 *.out
-
-# Go test artifacts
-coverage/
-cover.out
 
 # Dependencies
 vendor/
 
-# Logs
+# Logs and temp files
 *.log
-
-# Temporary files
 *.tmp
-*~
-.DS_Store
-Thumbs.db
+*.swp
 
 # Environment
 .env
 .env.local
 *.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Go-specific
+*.test
+*.prof
 ```

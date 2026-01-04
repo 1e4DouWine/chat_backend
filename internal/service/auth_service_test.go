@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"chat_backend/internal/dto"
@@ -10,92 +9,18 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-// MockUserModel 是 User 模型的模拟
-type MockUserModel struct {
-	mock.Mock
-}
-
-// MockQuery 是查询接口的模拟
-type MockQuery struct {
-	mock.Mock
-}
-
-// MockUserQuery 是用户查询的模拟
-type MockUserQuery struct {
-	mock.Mock
-}
-
-// MockDO 是数据操作的模拟
-type MockDO struct {
-	mock.Mock
-}
-
-// 模拟数据库查询方法
-func (m *MockDO) Where(...interface{}) *MockDO {
-	args := m.Called()
-	return args.Get(0).(*MockDO)
-}
-
-func (m *MockDO) First() (*model.User, error) {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*model.User), args.Error(1)
-}
-
-func (m *MockDO) Create(user *model.User) error {
-	args := m.Called(user)
-	return args.Error(0)
-}
-
-func (m *MockUserQuery) WithContext(ctx context.Context) *MockDO {
-	args := m.Called(ctx)
-	return args.Get(0).(*MockDO)
-}
-
-func (m *MockUserQuery) Eq(interface{}) interface{} {
-	args := m.Called()
-	return args.Get(0)
-}
-
-func (m *MockQuery) User() *MockUserQuery {
-	args := m.Called()
-	return args.Get(0).(*MockUserQuery)
-}
-
-// MockDB 是数据库的模拟
-type MockDB struct {
-	mock.Mock
-}
-
-func (m *MockDB) Use(*gorm.DB) *MockQuery {
-	args := m.Called()
-	return args.Get(0).(*MockQuery)
-}
-
-// 模拟 dao.Use 函数
-var mockDBInstance *MockDB
-
-func init() {
-	mockDBInstance = new(MockDB)
-}
-
 // 测试注册功能
 func TestAuthService_Register(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 设置期望
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return((*model.User)(nil), gorm.ErrRecordNotFound) // 用户不存在
 	mockDO.On("Create", mock.AnythingOfType("*model.User")).Return(nil) // 创建成功
@@ -123,20 +48,17 @@ func TestAuthService_Register(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 
 // 测试用户名已存在的情况
 func TestAuthService_Register_UsernameExists(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 设置期望：用户已存在
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return(&model.User{ID: "123", Username: "testuser"}, nil) // 用户已存在
 
@@ -161,24 +83,21 @@ func TestAuthService_Register_UsernameExists(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 
 // 测试登录功能
 func TestAuthService_Login(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 加密密码
 	password := "password123"
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 
 	// 设置期望
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return(&model.User{
 		ID:           "123",
@@ -209,20 +128,17 @@ func TestAuthService_Login(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 
 // 测试登录时用户名或密码错误的情况
 func TestAuthService_Login_InvalidCredentials(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 设置期望：用户不存在
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return((*model.User)(nil), gorm.ErrRecordNotFound)
 
@@ -247,24 +163,21 @@ func TestAuthService_Login_InvalidCredentials(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 
 // 测试密码验证失败的情况
 func TestAuthService_Login_InvalidPassword(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 加密密码
 	password := "correctpassword"
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 
 	// 设置期望：用户存在但密码错误
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return(&model.User{
 		ID:           "123",
@@ -293,16 +206,13 @@ func TestAuthService_Login_InvalidPassword(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 
 // 测试刷新令牌功能
 func TestAuthService_RefreshToken(t *testing.T) {
 	// 创建模拟对象
-	mockQuery := new(MockQuery)
-	mockUserQuery := new(MockUserQuery)
-	mockDO := new(MockDO)
+	mockDB, mockQuery, mockDO := SetupMockDB()
 	
 	// 创建一个有效的JWT令牌
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -311,8 +221,8 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	tokenString, _ := token.SignedString([]byte("test-secret"))
 
 	// 设置期望
-	mockQuery.On("User").Return(mockUserQuery)
-	mockUserQuery.On("WithContext", mock.Anything).Return(mockDO)
+	mockQuery.On("User").Return(mockDO)
+	mockDO.On("WithContext", mock.Anything).Return(mockDO)
 	mockDO.On("Where", mock.Anything).Return(mockDO)
 	mockDO.On("First").Return(&model.User{
 		ID:       "123",
@@ -341,7 +251,6 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	// 验证模拟对象的调用
 	mockQuery.AssertExpectations(t)
-	mockUserQuery.AssertExpectations(t)
 	mockDO.AssertExpectations(t)
 }
 

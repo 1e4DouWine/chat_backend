@@ -19,12 +19,11 @@ func Register(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
-	// 基本验证
 	if strings.TrimSpace(req.Username) == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageUsernameRequired)
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "password is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessagePasswordRequired)
 	}
 
 	// 获取服务实例
@@ -50,12 +49,11 @@ func Login(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
-	// 基本验证
 	if strings.TrimSpace(req.Username) == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageUsernameRequired)
 	}
 	if strings.TrimSpace(req.Password) == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "password is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessagePasswordRequired)
 	}
 
 	// 获取服务实例
@@ -81,9 +79,8 @@ func RefreshToken(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 
-	// 基本验证
 	if strings.TrimSpace(req.RefreshToken) == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "refresh_token is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageRefreshTokenRequired)
 	}
 
 	// 获取服务实例

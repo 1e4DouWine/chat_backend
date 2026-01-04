@@ -22,6 +22,27 @@ const (
 	StatusApproved = "approved"
 )
 
+const (
+	errNotInGroup            = "you are not in this group"
+	errGroupNotFound         = "group not found"
+	errAlreadyInGroup        = "already in group"
+	errPendingRequestExists  = "pending request already exists"
+	errCannotRequestCooldown = "cannot request within cooldown period"
+	errNotInGroupMsg         = "not in group"
+	errCannotLeaveAsOwner    = "cannot leave as owner"
+	errPermissionDenied      = "permission denied"
+	errTargetUserNotInGroup  = "target user not in group"
+	errCannotRemoveYourself  = "cannot remove yourself"
+	errCannotRemoveOwner     = "cannot remove owner"
+	errInvalidInviteCode     = "invalid invite code"
+	errJoinRequestNotFound   = "join request not found"
+	errInvalidAction         = "invalid action"
+	errStatusJoined          = "joined"
+	errStatusPending         = "pending"
+	errActionApprove         = "approve"
+	errActionReject          = "reject"
+)
+
 type GroupService struct {
 	db *gorm.DB
 }
@@ -136,7 +157,7 @@ func (s *GroupService) GetGroupDetail(ctx context.Context, userID string, groupI
 
 	_, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
 	if err != nil {
-		return nil, fmt.Errorf("you are not in this group")
+		return nil, fmt.Errorf(errNotInGroup)
 	}
 
 	// 获取群组信息
@@ -201,7 +222,7 @@ func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID str
 		var err error
 		group, err = gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -209,7 +230,7 @@ func (s *GroupService) JoinGroup(ctx context.Context, userID string, groupID str
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
 		if err == nil {
-			return fmt.Errorf("already in group")
+			return fmt.Errorf(errAlreadyInGroup)
 		}
 
 		groupMember := model.GroupMember{
@@ -248,7 +269,7 @@ func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, grou
 
 	group, err := gdo.Where(gq.ID.Eq(groupID)).First()
 	if err != nil {
-		return nil, fmt.Errorf("group not found")
+		return nil, fmt.Errorf(errGroupNotFound)
 	}
 
 	mq := dao.Use(s.db).GroupMember
@@ -256,7 +277,7 @@ func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, grou
 
 	_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
 	if err == nil {
-		return nil, fmt.Errorf("already in group")
+		return nil, fmt.Errorf(errAlreadyInGroup)
 	}
 
 	rq := dao.Use(s.db).GroupJoinRequest
@@ -271,7 +292,7 @@ func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, grou
 		rq.CreatedAt.Gte(sevenDaysAgo),
 	).First()
 	if err == nil {
-		return nil, fmt.Errorf("pending request already exists")
+		return nil, fmt.Errorf(errPendingRequestExists)
 	}
 
 	_, err = rdo.Where(
@@ -281,7 +302,7 @@ func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, grou
 		rq.CreatedAt.Gte(sevenDaysAgo),
 	).First()
 	if err == nil {
-		return nil, fmt.Errorf("cannot request within cooldown period")
+		return nil, fmt.Errorf(errCannotRequestCooldown)
 	}
 
 	joinRequest := model.GroupJoinRequest{
@@ -298,7 +319,7 @@ func (s *GroupService) RequestJoinGroup(ctx context.Context, userID string, grou
 	return &dto.RequestJoinGroupResponse{
 		GroupID: group.ID,
 		Name:    group.Name,
-		Status:  "pending",
+		Status:  errStatusPending,
 	}, nil
 }
 
@@ -310,7 +331,7 @@ func (s *GroupService) LeaveGroup(ctx context.Context, userID string, groupID st
 
 		_, err := gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -318,11 +339,11 @@ func (s *GroupService) LeaveGroup(ctx context.Context, userID string, groupID st
 
 		member, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
 		if err != nil {
-			return fmt.Errorf("not in group")
+			return fmt.Errorf(errNotInGroupMsg)
 		}
 
 		if member.Role == RoleOwner {
-			return fmt.Errorf("cannot leave as owner")
+			return fmt.Errorf(errCannotLeaveAsOwner)
 		}
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).Delete()
@@ -349,11 +370,11 @@ func (s *GroupService) DisbandGroup(ctx context.Context, userID string, groupID 
 
 		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		if group.OwnerID != userID {
-			return fmt.Errorf("permission denied")
+			return fmt.Errorf(errPermissionDenied)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -383,11 +404,11 @@ func (s *GroupService) TransferGroup(ctx context.Context, userID string, groupID
 
 		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		if group.OwnerID != userID {
-			return fmt.Errorf("permission denied")
+			return fmt.Errorf(errPermissionDenied)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -395,7 +416,7 @@ func (s *GroupService) TransferGroup(ctx context.Context, userID string, groupID
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).First()
 		if err != nil {
-			return fmt.Errorf("target user not in group")
+			return fmt.Errorf(errTargetUserNotInGroup)
 		}
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(newOwnerID)).Update(mq.Role, RoleOwner)
@@ -427,15 +448,15 @@ func (s *GroupService) RemoveMember(ctx context.Context, userID string, groupID 
 
 		group, err := gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		if group.OwnerID != userID {
-			return fmt.Errorf("permission denied")
+			return fmt.Errorf(errPermissionDenied)
 		}
 
 		if targetUserID == userID {
-			return fmt.Errorf("cannot remove yourself")
+			return fmt.Errorf(errCannotRemoveYourself)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -443,11 +464,11 @@ func (s *GroupService) RemoveMember(ctx context.Context, userID string, groupID 
 
 		targetMember, err := mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).First()
 		if err != nil {
-			return fmt.Errorf("target user not in group")
+			return fmt.Errorf(errTargetUserNotInGroup)
 		}
 
 		if targetMember.Role == RoleOwner {
-			return fmt.Errorf("cannot remove owner")
+			return fmt.Errorf(errCannotRemoveOwner)
 		}
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(targetUserID)).Delete()
@@ -477,7 +498,7 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 
 		invitationCode, err := icDo.Where(icQ.Code.Eq(inviteCode)).First()
 		if err != nil {
-			return fmt.Errorf("invalid invite code")
+			return fmt.Errorf(errInvalidInviteCode)
 		}
 
 		groupID = invitationCode.UUID
@@ -487,7 +508,7 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 
 		group, err = gdo.Where(gq.ID.Eq(groupID)).First()
 		if err != nil {
-			return fmt.Errorf("group not found")
+			return fmt.Errorf(errGroupNotFound)
 		}
 
 		mq := dao.Use(tx).GroupMember
@@ -495,7 +516,7 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 
 		_, err = mdo.Where(mq.GroupID.Eq(groupID), mq.UserID.Eq(userID)).First()
 		if err == nil {
-			return fmt.Errorf("already in group")
+			return fmt.Errorf(errAlreadyInGroup)
 		}
 
 		groupMember := model.GroupMember{
@@ -523,7 +544,7 @@ func (s *GroupService) JoinGroupByCode(ctx context.Context, userID string, invit
 	return &dto.JoinGroupByCodeResponse{
 		GroupID: group.ID,
 		Name:    group.Name,
-		Status:  "joined",
+		Status:  errStatusJoined,
 	}, nil
 }
 

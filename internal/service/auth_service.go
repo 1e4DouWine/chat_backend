@@ -17,11 +17,26 @@ import (
 
 const (
 	tokenExpireTime = time.Hour * 24
+
+	tokenTypeBearer = "Bearer"
+)
+
+const (
+	errFailedToHashPassword      = "failed to hash password"
+	errFailedToCreateUser        = "failed to create user"
+	errFailedToGenerateToken     = "failed to generate access token"
+	errFailedToGenerateRefresh   = "failed to generate refresh token"
+	errJWTNotInitialized         = "JWT not initialized"
+	errUnexpectedSigningMethod   = "unexpected signing method"
+	errInvalidRefreshToken       = "invalid refresh token"
+	errUserNotFound              = "user not found"
+	errInvalidUsernameOrPassword = "invalid username or password"
+	errUsernameAlreadyExists     = "username already exists"
 )
 
 var (
-	ErrUsernameAlreadyExists     = errors.New("username already exists")
-	ErrInvalidUsernameOrPassword = errors.New("invalid username or password")
+	ErrUsernameAlreadyExists     = errors.New(errUsernameAlreadyExists)
+	ErrInvalidUsernameOrPassword = errors.New(errInvalidUsernameOrPassword)
 )
 
 // AuthService 认证服务
@@ -47,7 +62,7 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 	// 密码加密
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToHashPassword, err)
 	}
 
 	// 创建用户
@@ -57,25 +72,25 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 	}
 
 	if err = do.Create(&user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToCreateUser, err)
 	}
 
 	// 生成令牌
 	accessToken, err := middleware.GenerateAccessToken(user.ID, user.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToGenerateToken, err)
 	}
 
 	refreshToken, err := middleware.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToGenerateRefresh, err)
 	}
 
 	return &dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresIn:    int64(tokenExpireTime.Seconds()),
-		TokenType:    "Bearer",
+		TokenType:    tokenTypeBearer,
 	}, nil
 }
 
@@ -97,19 +112,19 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 	// 生成令牌
 	accessToken, err := middleware.GenerateAccessToken(user.ID, user.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToGenerateToken, err)
 	}
 
 	refreshToken, err := middleware.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToGenerateRefresh, err)
 	}
 
 	return &dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresIn:    int64(tokenExpireTime.Seconds()),
-		TokenType:    "Bearer",
+		TokenType:    tokenTypeBearer,
 	}, nil
 }
 
@@ -118,28 +133,28 @@ func (s *AuthService) RefreshToken(ctx context.Context, req dto.RefreshRequest) 
 	// 验证刷新令牌
 	jwtConfig := middleware.GetJWTConfig()
 	if jwtConfig == nil {
-		return nil, errors.New("JWT not initialized")
+		return nil, errors.New(errJWTNotInitialized)
 	}
 
 	token, err := jwt.Parse(req.RefreshToken, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
+			return nil, fmt.Errorf(errUnexpectedSigningMethod)
 		}
 		return []byte(jwtConfig.SecretKey), nil
 	})
 
 	if err != nil || !token.Valid {
-		return nil, errors.New("invalid refresh token")
+		return nil, errors.New(errInvalidRefreshToken)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, errors.New("invalid refresh token")
+		return nil, errors.New(errInvalidRefreshToken)
 	}
 
 	userID, ok := claims["sub"].(string)
 	if !ok {
-		return nil, errors.New("invalid refresh token")
+		return nil, errors.New(errInvalidRefreshToken)
 	}
 
 	// 查找用户
@@ -147,18 +162,18 @@ func (s *AuthService) RefreshToken(ctx context.Context, req dto.RefreshRequest) 
 	do := q.WithContext(ctx)
 	user, err := do.Where(q.ID.Eq(userID)).First()
 	if err != nil {
-		return nil, errors.New("user not found")
+		return nil, errors.New(errUserNotFound)
 	}
 
 	// 生成新的访问令牌
 	accessToken, err := middleware.GenerateAccessToken(user.ID, user.Username)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
+		return nil, fmt.Errorf("%s: %w", errFailedToGenerateToken, err)
 	}
 
 	return &dto.AuthResponse{
 		AccessToken: accessToken,
 		ExpiresIn:   int64(tokenExpireTime.Seconds()),
-		TokenType:   "Bearer",
+		TokenType:   tokenTypeBearer,
 	}, nil
 }

@@ -36,7 +36,7 @@ func CreateGroup(c echo.Context) error {
 // GetGroupList 获取群组列表
 func GetGroupList(c echo.Context) error {
 	ctx := c.Request().Context()
-	role := c.QueryParam("role")
+	role := c.QueryParam(QueryParamRole)
 	if role != "" {
 		if role != service.RoleOwner && role != service.RoleMember {
 			return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
@@ -56,16 +56,16 @@ func GetGroupList(c echo.Context) error {
 // GetGroupDetail 获取群组详情
 func GetGroupDetail(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 	userID := c.Get(global.JwtKeyUserID).(string)
 
 	groupService := service.NewGroupService(database.GetDB())
 	groupDetail, err := groupService.GetGroupDetail(ctx, userID, groupID)
 	if err != nil {
-		if err.Error() == "you are not in this group" {
+		if err.Error() == ErrorMessageYouAreNotInThisGroup {
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
 		}
 		return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
@@ -77,9 +77,9 @@ func GetGroupDetail(c echo.Context) error {
 // JoinGroup 加入群组
 func JoinGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 	var req dto.JoinGroupRequest
 	if err := c.Bind(&req); err != nil {
@@ -91,9 +91,9 @@ func JoinGroup(c echo.Context) error {
 	result, err := groupService.JoinGroup(ctx, userID, groupID, req.InviteCode)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "already in group":
+		case ErrorMessageAlreadyInGroup:
 			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToJoinGroup, err.Error())
@@ -106,10 +106,10 @@ func JoinGroup(c echo.Context) error {
 // LeaveGroup 退出群组
 func LeaveGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -118,11 +118,11 @@ func LeaveGroup(c echo.Context) error {
 	err := groupService.LeaveGroup(ctx, userID, groupID)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "not in group":
+		case ErrorMessageNotInGroup:
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
-		case "cannot leave as owner":
+		case ErrorMessageCannotLeaveAsOwner:
 			return response.Error(c, errors.ErrCodeCannotLeaveAsOwner, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToLeaveGroup, err.Error())
@@ -135,10 +135,10 @@ func LeaveGroup(c echo.Context) error {
 // DisbandGroup 解散群组
 func DisbandGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -147,9 +147,9 @@ func DisbandGroup(c echo.Context) error {
 	err := groupService.DisbandGroup(ctx, userID, groupID)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "permission denied":
+		case ErrorMessagePermissionDenied:
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToDisbandGroup, err.Error())
@@ -162,10 +162,10 @@ func DisbandGroup(c echo.Context) error {
 // TransferGroup 转让群组
 func TransferGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 	userID := c.Get(global.JwtKeyUserID).(string)
 
@@ -175,18 +175,18 @@ func TransferGroup(c echo.Context) error {
 	}
 
 	if req.NewOwnerID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "new_owner_id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageNewOwnerIDRequired)
 	}
 
 	groupService := service.NewGroupService(database.GetDB())
 	err := groupService.TransferGroup(ctx, userID, groupID, req.NewOwnerID)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "permission denied":
+		case ErrorMessagePermissionDenied:
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
-		case "target user not in group":
+		case ErrorMessageTargetUserNotInGroup:
 			return response.Error(c, errors.ErrCodeInvalidRequest, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToTransferGroup, err.Error())
@@ -199,11 +199,11 @@ func TransferGroup(c echo.Context) error {
 // RemoveMember 移除群组成员
 func RemoveMember(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("group_id")
-	targetUserID := c.Param("user_id")
+	groupID := c.Param(ParamGroupID)
+	targetUserID := c.Param(ParamUserID)
 
 	if groupID == "" || targetUserID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group_id and user_id are required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDAndUserIDRequired)
 	}
 	userID := c.Get(global.JwtKeyUserID).(string)
 
@@ -211,15 +211,15 @@ func RemoveMember(c echo.Context) error {
 	err := groupService.RemoveMember(ctx, userID, groupID, targetUserID)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "permission denied":
+		case ErrorMessagePermissionDenied:
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
-		case "target user not in group":
+		case ErrorMessageTargetUserNotInGroup:
 			return response.Error(c, errors.ErrCodeInvalidRequest, err.Error())
-		case "cannot remove yourself":
+		case ErrorMessageCannotRemoveYourself:
 			return response.Error(c, errors.ErrCodeInvalidRequest, err.Error())
-		case "cannot remove owner":
+		case ErrorMessageCannotRemoveOwner:
 			return response.Error(c, errors.ErrCodeInvalidRequest, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToRemoveMember, err.Error())
@@ -246,11 +246,11 @@ func JoinGroupByCode(c echo.Context) error {
 	result, err := groupService.JoinGroupByCode(ctx, userID, req.InviteCode)
 	if err != nil {
 		switch err.Error() {
-		case "invalid invite code":
+		case ErrorMessageInvalidInviteCode:
 			return response.Error(c, errors.ErrCodeInvalidInviteCode, err.Error())
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "already in group":
+		case ErrorMessageAlreadyInGroup:
 			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToJoinGroup, err.Error())
@@ -263,9 +263,9 @@ func JoinGroupByCode(c echo.Context) error {
 // SearchGroup 搜索群组
 func SearchGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupName := c.QueryParam("name")
+	groupName := c.QueryParam(QueryParamName)
 	if groupName == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "name is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageNameRequired)
 	}
 
 	groupService := service.NewGroupService(database.GetDB())
@@ -280,9 +280,9 @@ func SearchGroup(c echo.Context) error {
 // RequestJoinGroup 申请加入群组
 func RequestJoinGroup(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 
 	var req dto.RequestJoinGroupRequest
@@ -296,13 +296,13 @@ func RequestJoinGroup(c echo.Context) error {
 	result, err := groupService.RequestJoinGroup(ctx, userID, groupID, req.Message)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "already in group":
+		case ErrorMessageAlreadyInGroup:
 			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
-		case "pending request already exists":
+		case ErrorMessagePendingRequestAlreadyExists:
 			return response.Error(c, errors.ErrCodeAlreadyRequested, err.Error())
-		case "cannot request within cooldown period":
+		case ErrorMessageCannotRequestWithinCooldown:
 			return response.Error(c, errors.ErrCodeCannotRequestWithinCooldown, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToRequestJoinGroup, err.Error())
@@ -330,11 +330,11 @@ func GetPendingJoinRequests(c echo.Context) error {
 // ApproveJoinRequest 审批入群请求
 func ApproveJoinRequest(c echo.Context) error {
 	ctx := c.Request().Context()
-	groupID := c.Param("id")
-	senderID := c.Param("user_id")
+	groupID := c.Param(ParamID)
+	senderID := c.Param(ParamUserID)
 
 	if groupID == "" || senderID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group id and user id are required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDAndUserIDRequired2)
 	}
 
 	var req dto.ApproveJoinRequestRequest
@@ -343,7 +343,7 @@ func ApproveJoinRequest(c echo.Context) error {
 	}
 
 	if req.Action != "approve" && req.Action != "reject" {
-		return response.Error(c, errors.ErrCodeInvalidAction, "action must be approve or reject")
+		return response.Error(c, errors.ErrCodeInvalidAction, ErrorMessageActionMustBeApproveOrReject)
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -352,15 +352,15 @@ func ApproveJoinRequest(c echo.Context) error {
 	err := groupService.ApproveJoinRequest(ctx, userID, groupID, senderID, req.Action)
 	if err != nil {
 		switch err.Error() {
-		case "group not found":
+		case ErrorMessageGroupNotFound:
 			return response.Error(c, errors.ErrCodeGroupNotFound, err.Error())
-		case "permission denied":
+		case ErrorMessagePermissionDenied:
 			return response.Error(c, errors.ErrCodePermissionDenied, err.Error())
-		case "join request not found":
+		case ErrorMessageJoinRequestNotFound:
 			return response.Error(c, errors.ErrCodeJoinRequestNotFound, err.Error())
-		case "invalid action":
+		case ErrorMessageInvalidAction:
 			return response.Error(c, errors.ErrCodeInvalidAction, err.Error())
-		case "already in group":
+		case ErrorMessageAlreadyInGroup:
 			return response.Error(c, errors.ErrCodeAlreadyInGroup, err.Error())
 		default:
 			return response.Error(c, errors.ErrCodeFailedToApproveJoinRequest, err.Error())

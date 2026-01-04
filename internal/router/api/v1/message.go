@@ -16,9 +16,9 @@ import (
 func GetPrivateMessages(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	targetUserID := c.QueryParam("target_user_id")
+	targetUserID := c.QueryParam(QueryParamTargetUserID)
 	if targetUserID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "target_user_id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageTargetUserIDRequired)
 	}
 	userID := c.Get(global.JwtKeyUserID).(string)
 
@@ -28,18 +28,18 @@ func GetPrivateMessages(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInternalError, err.Error())
 	}
 	if !isFriend {
-		return response.Error(c, errors.ErrCodePermissionDenied, "You are not in a friend relationship")
+		return response.Error(c, errors.ErrCodePermissionDenied, ErrorMessageNotFriendRelationship)
 	}
 
-	limitStr := c.QueryParam("limit")
-	limit := 20
+	limitStr := c.QueryParam(QueryParamLimit)
+	limit := DefaultLimit
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
 		}
 	}
 
-	cursor := c.QueryParam("cursor")
+	cursor := c.QueryParam(QueryParamCursor)
 
 	messageService := service.NewMessageService(database.GetDB())
 	result, err := messageService.GetPrivateMessages(ctx, userID, targetUserID, limit, cursor)
@@ -69,9 +69,9 @@ func GetConversationList(c echo.Context) error {
 func GetGroupMessages(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	groupID := c.Param("id")
+	groupID := c.Param(ParamID)
 	if groupID == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "group_id is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageGroupIDRequired)
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -81,18 +81,18 @@ func GetGroupMessages(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInternalError, err.Error())
 	}
 	if !isGroupMember {
-		return response.Error(c, errors.ErrCodePermissionDenied, "You are not a member of this group")
+		return response.Error(c, errors.ErrCodePermissionDenied, ErrorMessageNotGroupMember)
 	}
 
-	limitStr := c.QueryParam("limit")
-	limit := 20
+	limitStr := c.QueryParam(QueryParamLimit)
+	limit := DefaultLimit
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 			limit = l
 		}
 	}
 
-	cursor := c.QueryParam("cursor")
+	cursor := c.QueryParam(QueryParamCursor)
 
 	messageService := service.NewMessageService(database.GetDB())
 	result, err := messageService.GetGroupMessages(ctx, groupID, limit, cursor)

@@ -7,9 +7,9 @@ import (
 )
 
 func Hello(c echo.Context) error {
-	name := c.QueryParam("name")
+	name := c.QueryParam(QueryParamName)
 	if name == "" {
-		name = "World"
+		name = DefaultHelloName
 	}
 
 	data := map[string]string{

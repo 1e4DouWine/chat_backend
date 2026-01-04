@@ -10,6 +10,11 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	avatarUrlBase = "https://ui-avatars.com/api/"
+	avatarSize    = "128"
+)
+
 type MessageService struct {
 	db *gorm.DB
 }
@@ -176,7 +181,7 @@ func (s *MessageService) getGroupInfo(ctx context.Context, groupID string) (*dto
 
 func (s *MessageService) generateAvatarUrl(userID string, username string) string {
 	color := colorFromUUID(userID)
-	return "https://ui-avatars.com/api/?name=" + username + "&background=" + color + "&rounded=true&size=128"
+	return avatarUrlBase + "?name=" + username + "&background=" + color + "&rounded=true&size=" + avatarSize
 }
 
 func (s *MessageService) SendPrivateMessage(ctx context.Context, fromUserID string, targetUserID string, content string, messageID string, isTargetOnline bool) (*model.Message, error) {

@@ -27,6 +27,23 @@ const (
 	FriendStatusRemoved   = "removed"
 )
 
+const (
+	errAlreadyFriends              = "你们已经是好友了"
+	errFriendRequestPendingExists  = "您已经发送过好友申请，正在等待对方处理"
+	errRequestRejected             = "对方已拒绝您的好友申请，请七天后再试"
+	errIncomingRequestExists       = "对方已经向您发送了好友申请，请在待处理申请中查看"
+	errUnknownUser                 = "unknown"
+	errInvalidStatus               = "无效的status参数"
+	errNoPendingRequest            = "未找到待处理的好友申请"
+	errCreateFriendRelationFailed  = "创建好友关系失败"
+	errDeleteFriendRequestFailed   = "删除好友申请记录失败"
+	errRejectFriendRequestFailed   = "拒绝好友申请失败"
+	errInvalidFriendRequestAction  = "无效的参数"
+	errFriendRelationNotFound      = "好友关系不存在"
+	errCannotDeleteNonNormalFriend = "只能删除正常的好友关系"
+	errDeleteFriendFailed          = "删除好友失败"
+)
+
 type UserService struct {
 	db *gorm.DB
 }
@@ -137,7 +154,7 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 		friendQ.UserB.Eq(userID),
 	).First()
 	if err == nil && existingFriend.Status == FriendStatusNormal {
-		return nil, fmt.Errorf("你们已经是好友了")
+		return nil, fmt.Errorf(errAlreadyFriends)
 	}
 
 	// 2. 检查 FriendRequest 表是否有未过期的 pending 申请
@@ -155,11 +172,10 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 	}
 	switch r.Status {
 	case FriendRequestStatusPending:
-		return nil, fmt.Errorf("您已经发送过好友申请，正在等待对方处理")
+		return nil, fmt.Errorf(errPendingRequestExists)
 	case FriendRequestStatusRejected:
-		return nil, fmt.Errorf("对方已拒绝您的好友申请，请七天后再试")
+		return nil, fmt.Errorf(errRequestRejected)
 	}
-	// 检查对方是否发送过未过期的申请
 	_, err = requestDo.Where(
 		requestQ.SenderID.Eq(friendID),
 		requestQ.ReceiverID.Eq(userID),
@@ -167,7 +183,7 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 		requestQ.CreatedAt.Gt(expireTime),
 	).First()
 	if err == nil {
-		return nil, fmt.Errorf("对方已经向您发送了好友申请，请在待处理申请中查看")
+		return nil, fmt.Errorf(errIncomingRequestExists)
 	}
 
 	// 3. 向 FriendRequest 表插入 pending 记录
@@ -197,7 +213,7 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 		return s.getAcceptedFriends(ctx, userID)
 	}
 
-	return nil, fmt.Errorf("无效的status参数")
+	return nil, fmt.Errorf(errInvalidStatus)
 }
 
 func (s *UserService) getPendingFriendRequests(ctx context.Context, userID string) ([]*dto.FriendInfoResponse, error) {
@@ -225,11 +241,11 @@ func (s *UserService) getPendingFriendRequests(ctx context.Context, userID strin
 	for _, r := range requests {
 		username, err := s.GetUsernameByUserID(ctx, r.SenderID)
 		if err != nil {
-			username = "unknown"
+			username = errUnknownUser
 		}
 		avatarUrl, err := s.GetUserAvatarUrl(r.SenderID, username)
 		if err != nil {
-			avatarUrl = "unknown"
+			avatarUrl = errUnknownUser
 		}
 
 		responses = append(responses, &dto.FriendInfoResponse{
@@ -276,11 +292,11 @@ func (s *UserService) getAcceptedFriends(ctx context.Context, userID string) ([]
 
 		username, err := s.GetUsernameByUserID(ctx, friendUserID)
 		if err != nil {
-			username = "unknown"
+			username = errUnknownUser
 		}
 		avatarUrl, err := s.GetUserAvatarUrl(friendUserID, username)
 		if err != nil {
-			avatarUrl = "unknown"
+			avatarUrl = errUnknownUser
 		}
 
 		responses = append(responses, &dto.FriendInfoResponse{
@@ -312,7 +328,7 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 	).First()
 
 	if err != nil {
-		return nil, fmt.Errorf("未找到待处理的好友申请")
+		return nil, fmt.Errorf(errNoPendingRequest)
 	}
 
 	switch action {
@@ -328,7 +344,7 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 		}
 
 		if err := friendDo.Create(&friendRecord); err != nil {
-			return nil, fmt.Errorf("创建好友关系失败: %v", err)
+			return nil, fmt.Errorf("%s: %v", errCreateFriendRelationFailed, err)
 		}
 
 		// 删除FriendRequest表中的对应记录（软删除）
@@ -336,7 +352,7 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			requestQ.SenderID.Eq(friendID),
 			requestQ.ReceiverID.Eq(userID),
 		).Delete(); err != nil {
-			return nil, fmt.Errorf("删除好友申请记录失败: %v", err)
+			return nil, fmt.Errorf("%s: %v", errDeleteFriendRequestFailed, err)
 		}
 
 		return &dto.AddFriendResponse{
@@ -344,12 +360,11 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			Status:   FriendStatusNormal,
 		}, nil
 	case ActionParamReject:
-		// 拒绝好友申请：更新FriendRequest状态为rejected
 		if _, err := requestDo.Where(
 			requestQ.SenderID.Eq(friendID),
 			requestQ.ReceiverID.Eq(userID),
 		).Update(requestQ.Status, FriendRequestStatusRejected); err != nil {
-			return nil, fmt.Errorf("拒绝好友申请失败: %v", err)
+			return nil, fmt.Errorf("%s: %v", errRejectFriendRequestFailed, err)
 		}
 
 		return &dto.AddFriendResponse{
@@ -357,8 +372,7 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			Status:   FriendRequestStatusRejected,
 		}, nil
 	}
-	// 理论上不会跑到这里
-	return nil, fmt.Errorf("无效的参数")
+	return nil, fmt.Errorf(errInvalidFriendRequestAction)
 }
 
 // DeleteFriend 删除好友
@@ -378,12 +392,12 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 	).First()
 
 	if err != nil {
-		return fmt.Errorf("好友关系不存在")
+		return fmt.Errorf(errFriendRelationNotFound)
 	}
 
 	// 验证权限：只能删除状态为 normal 的好友关系
 	if record.Status != FriendStatusNormal {
-		return fmt.Errorf("只能删除正常的好友关系")
+		return fmt.Errorf(errCannotDeleteNonNormalFriend)
 	}
 
 	// 更新状态为 removed
@@ -393,7 +407,7 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 	).Update(friendQ.Status, FriendStatusRemoved)
 
 	if err != nil {
-		return fmt.Errorf("删除好友失败: %v", err)
+		return fmt.Errorf("%s: %v", errDeleteFriendFailed, err)
 	}
 
 	return nil

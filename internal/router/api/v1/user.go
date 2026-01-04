@@ -11,12 +11,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-const (
-	getFriendListQueryParam = "status"
-
-	processFriendRequestParam = "action"
-)
-
 // GetMe 获取当前用户的信息
 func GetMe(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -40,12 +34,12 @@ func GetMe(c echo.Context) error {
 // SearchUser 搜索用户
 func SearchUser(c echo.Context) error {
 	ctx := c.Request().Context()
-	username := c.QueryParam("username")
+	username := c.QueryParam(QueryParamUsername)
 	if username == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageUsernameRequired)
 	}
 	if username == c.Get(global.JwtKeyUserName).(string) {
-		return response.Error(c, errors.ErrCodeInvalidRequest, "can not search yourself")
+		return response.Error(c, errors.ErrCodeInvalidRequest, ErrorMessageCanNotSearchYourself)
 	}
 
 	userService := service.NewUserService(database.GetDB())
@@ -68,7 +62,7 @@ func AddFriend(c echo.Context) error {
 		return response.Error(c, errors.ErrCodeInvalidRequest, errors.GetMessage(errors.ErrCodeInvalidRequest))
 	}
 	if req.Username == "" {
-		return response.Error(c, errors.ErrCodeRequiredFieldMissing, "username is required")
+		return response.Error(c, errors.ErrCodeRequiredFieldMissing, ErrorMessageUsernameRequired)
 	}
 
 	userID := c.Get(global.JwtKeyUserID).(string)
@@ -89,7 +83,7 @@ func AddFriend(c echo.Context) error {
 // GetFriendList 获取好友列表
 func GetFriendList(c echo.Context) error {
 	ctx := c.Request().Context()
-	status := c.QueryParam(getFriendListQueryParam)
+	status := c.QueryParam(QueryParamStatus)
 	if status == "" {
 		status = service.FriendStatusNormal
 	} else if status != service.FriendRequestStatusPending && status != service.FriendStatusNormal {
@@ -110,8 +104,8 @@ func GetFriendList(c echo.Context) error {
 // ProcessFriendRequest 处理好友申请
 func ProcessFriendRequest(c echo.Context) error {
 	ctx := c.Request().Context()
-	friendID := c.Param("id")
-	action := c.QueryParam(processFriendRequestParam)
+	friendID := c.Param(ParamID)
+	action := c.QueryParam(QueryParamAction)
 	if action != service.ActionParamAccept && action != service.ActionParamReject {
 		return response.Error(c, errors.ErrCodeInvalidAction, errors.GetMessage(errors.ErrCodeInvalidAction))
 	}
@@ -128,7 +122,7 @@ func ProcessFriendRequest(c echo.Context) error {
 // DeleteFriend 删除好友
 func DeleteFriend(c echo.Context) error {
 	ctx := c.Request().Context()
-	friendID := c.Param("id")
+	friendID := c.Param(ParamID)
 	userID := c.Get(global.JwtKeyUserID).(string)
 	userService := service.NewUserService(database.GetDB())
 

@@ -74,6 +74,30 @@ func createIndexes(db *gorm.DB) error {
 		return fmt.Errorf("创建group_members用户索引失败: %w", err)
 	}
 
+	// 为Message表创建复合索引（按类型和创建时间降序）
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_messages_type_created 
+		ON messages (type, created_at DESC)
+	`).Error; err != nil {
+		return fmt.Errorf("创建messages类型时间索引失败: %w", err)
+	}
+
+	// 为Message表创建复合索引（用于私聊消息查询）
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_messages_from_target_created 
+		ON messages (from_user_id, target_id, created_at DESC)
+	`).Error; err != nil {
+		return fmt.Errorf("创建messages发送者接收者索引失败: %w", err)
+	}
+
+	// 为Message表创建复合索引（用于群组消息查询）
+	if err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_messages_target_type_created 
+		ON messages (target_id, type, created_at DESC)
+	`).Error; err != nil {
+		return fmt.Errorf("创建messages接收者类型索引失败: %w", err)
+	}
+
 	return nil
 }
 

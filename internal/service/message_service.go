@@ -353,3 +353,224 @@ func (s *MessageService) MarkMessagesAsDelivered(ctx context.Context, userID str
 
 	return err
 }
+
+func (s *MessageService) GetConversationList(ctx context.Context, userID string) (*dto.GetConversationListResponse, error) {
+	privateConversations, err := s.getPrivateConversations(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupConversations, err := s.getGroupConversations(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.GetConversationListResponse{
+		PrivateConversations: privateConversations,
+		GroupConversations:   groupConversations,
+	}, nil
+}
+
+func (s *MessageService) getPrivateConversations(ctx context.Context, userID string) ([]dto.PrivateConversation, error) {
+	type PrivateChat struct {
+		PartnerID   string
+		LastContent string
+		LastTime    time.Time
+	}
+
+	var privateChats []PrivateChat
+
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT partner_id, content as last_content, created_at as last_time
+		FROM (
+			SELECT 
+				CASE 
+					WHEN from_user_id = ? THEN target_id 
+					ELSE from_user_id 
+				END as partner_id,
+				content,
+				created_at,
+				ROW_NUMBER() OVER (PARTITION BY CASE 
+					WHEN from_user_id = ? THEN target_id 
+					ELSE from_user_id 
+				END ORDER BY created_at DESC) as rn
+			FROM messages
+			WHERE type = ? AND (from_user_id = ? OR target_id = ?)
+		) t
+		WHERE rn = 1
+		ORDER BY last_time DESC
+	`, userID, userID, string(model.MessageTypePrivate), userID, userID).Scan(&privateChats).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(privateChats) == 0 {
+		return []dto.PrivateConversation{}, nil
+	}
+
+	partnerIDs := make([]string, 0, len(privateChats))
+	for _, chat := range privateChats {
+		partnerIDs = append(partnerIDs, chat.PartnerID)
+	}
+
+	userQ := dao.Use(s.db).User
+	userDo := userQ.WithContext(ctx)
+
+	users, err := userDo.Where(userQ.ID.In(partnerIDs...)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	userMap := make(map[string]*model.User)
+	for _, user := range users {
+		userMap[user.ID] = user
+	}
+
+	chatMap := make(map[string]PrivateChat)
+	for _, chat := range privateChats {
+		chatMap[chat.PartnerID] = chat
+	}
+
+	conversations := make([]dto.PrivateConversation, 0, len(partnerIDs))
+	for _, partnerID := range partnerIDs {
+		chat := chatMap[partnerID]
+		user := userMap[partnerID]
+
+		conversations = append(conversations, dto.PrivateConversation{
+			UserID:      user.ID,
+			Username:    user.Username,
+			Avatar:      s.generateAvatarUrl(user.ID, user.Username),
+			LastContent: chat.LastContent,
+			LastTime:    chat.LastTime,
+		})
+	}
+
+	return conversations, nil
+}
+
+func (s *MessageService) getGroupConversations(ctx context.Context, userID string) ([]dto.GroupConversation, error) {
+	gmQ := dao.Use(s.db).GroupMember
+	gmDo := gmQ.WithContext(ctx)
+
+	groupMembers, err := gmDo.Where(gmQ.UserID.Eq(userID)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(groupMembers) == 0 {
+		return []dto.GroupConversation{}, nil
+	}
+
+	groupIDs := make([]string, 0, len(groupMembers))
+	for _, gm := range groupMembers {
+		groupIDs = append(groupIDs, gm.GroupID)
+	}
+
+	type LastGroupMessage struct {
+		GroupID      string
+		LastContent  string
+		LastTime     time.Time
+		LastSenderID string
+	}
+
+	var lastGroupMessages []LastGroupMessage
+
+	err = s.db.WithContext(ctx).Raw(`
+		SELECT target_id as group_id, content as last_content, created_at as last_time, from_user_id as last_sender_id
+		FROM (
+			SELECT 
+				target_id,
+				content,
+				created_at,
+				from_user_id,
+				ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY created_at DESC) as rn
+			FROM messages
+			WHERE type = ? AND target_id IN (?)
+		) t
+		WHERE rn = 1
+		ORDER BY last_time DESC
+	`, string(model.MessageTypeGroup), groupIDs).Scan(&lastGroupMessages).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	groupQ := dao.Use(s.db).Group
+	groupDo := groupQ.WithContext(ctx)
+
+	groups, err := groupDo.Where(groupQ.ID.In(groupIDs...)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	groupMap := make(map[string]*model.Group)
+	for _, group := range groups {
+		groupMap[group.ID] = group
+	}
+
+	messageMap := make(map[string]LastGroupMessage)
+	for _, msg := range lastGroupMessages {
+		messageMap[msg.GroupID] = msg
+	}
+
+	senderIDs := make([]string, 0, len(lastGroupMessages))
+	for _, msg := range lastGroupMessages {
+		senderIDs = append(senderIDs, msg.LastSenderID)
+	}
+
+	var senders []*model.User
+	var senderMap map[string]*model.User
+
+	if len(senderIDs) > 0 {
+		userQ := dao.Use(s.db).User
+		userDo := userQ.WithContext(ctx)
+		senders, err = userDo.Where(userQ.ID.In(senderIDs...)).Find()
+		if err != nil {
+			return nil, err
+		}
+		senderMap = make(map[string]*model.User)
+		for _, sender := range senders {
+			senderMap[sender.ID] = sender
+		}
+	} else {
+		senderMap = make(map[string]*model.User)
+	}
+
+	conversations := make([]dto.GroupConversation, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		group := groupMap[groupID]
+		if msg, ok := messageMap[groupID]; ok {
+			if sender, senderOk := senderMap[msg.LastSenderID]; senderOk {
+				conversations = append(conversations, dto.GroupConversation{
+					GroupID:        group.ID,
+					GroupName:      group.Name,
+					LastContent:    msg.LastContent,
+					LastTime:       msg.LastTime,
+					LastSenderID:   msg.LastSenderID,
+					LastSenderName: sender.Username,
+				})
+			} else {
+				conversations = append(conversations, dto.GroupConversation{
+					GroupID:        group.ID,
+					GroupName:      group.Name,
+					LastContent:    msg.LastContent,
+					LastTime:       msg.LastTime,
+					LastSenderID:   msg.LastSenderID,
+					LastSenderName: "",
+				})
+			}
+		} else {
+			conversations = append(conversations, dto.GroupConversation{
+				GroupID:        group.ID,
+				GroupName:      group.Name,
+				LastContent:    "",
+				LastTime:       time.Time{},
+				LastSenderID:   "",
+				LastSenderName: "",
+			})
+		}
+	}
+
+	return conversations, nil
+}

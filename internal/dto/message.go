@@ -49,3 +49,32 @@ type GetMessagesResponse struct {
 	NextCursor  string            `json:"next_cursor,omitempty"`
 	HasMore     bool              `json:"has_more"`
 }
+
+type ConversationType string
+
+const (
+	ConversationTypePrivate ConversationType = "private"
+	ConversationTypeGroup   ConversationType = "group"
+)
+
+type PrivateConversation struct {
+	UserID       string    `json:"user_id"`
+	Username     string    `json:"username"`
+	Avatar       string    `json:"avatar"`
+	LastContent  string    `json:"last_content"`
+	LastTime     time.Time `json:"last_time"`
+}
+
+type GroupConversation struct {
+	GroupID      string    `json:"group_id"`
+	GroupName    string    `json:"group_name"`
+	LastContent  string    `json:"last_content"`
+	LastTime     time.Time `json:"last_time"`
+	LastSenderID string    `json:"last_sender_id"`
+	LastSenderName string  `json:"last_sender_name"`
+}
+
+type GetConversationListResponse struct {
+	PrivateConversations []PrivateConversation `json:"private_conversations"`
+	GroupConversations   []GroupConversation   `json:"group_conversations"`
+}

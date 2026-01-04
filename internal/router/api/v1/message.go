@@ -50,6 +50,21 @@ func GetPrivateMessages(c echo.Context) error {
 	return response.Success(c, result)
 }
 
+// GetConversationList 获取会话列表
+func GetConversationList(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	userID := c.Get(global.JwtKeyUserID).(string)
+
+	messageService := service.NewMessageService(database.GetDB())
+	result, err := messageService.GetConversationList(ctx, userID)
+	if err != nil {
+		return response.Error(c, errors.ErrCodeInternalError, err.Error())
+	}
+
+	return response.Success(c, result)
+}
+
 // GetGroupMessages 获取群聊消息记录
 func GetGroupMessages(c echo.Context) error {
 	ctx := c.Request().Context()

@@ -114,6 +114,9 @@ func messageRoutes(api *echo.Group) {
 	message := api.Group("/message")
 	message.Use(middleware.JWTMiddleware())
 
+	// 获取会话列表
+	message.GET("/conversations", v1.GetConversationList)
+
 	// 获取私聊消息记录
 	message.GET("/private", v1.GetPrivateMessages)
 

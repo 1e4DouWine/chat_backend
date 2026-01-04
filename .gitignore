@@ -1,7 +1,29 @@
-logs/
+```
+# Go build artifacts
+*.o
+*.a
+*.so
+*.exe
+*.out
 
-configs/*.yaml
-.trae/
-chat_backend.exe
-.idea/
-docs/
+# Go test artifacts
+coverage/
+cover.out
+
+# Dependencies
+vendor/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.env.*
+```

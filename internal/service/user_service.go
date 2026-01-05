@@ -167,14 +167,15 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 		requestQ.ReceiverID.Eq(friendID),
 		requestQ.CreatedAt.Gt(expireTime),
 	).First()
-	if err != nil {
+	if err == nil {
+		switch r.Status {
+		case FriendRequestStatusPending:
+			return nil, fmt.Errorf(errPendingRequestExists)
+		case FriendRequestStatusRejected:
+			return nil, fmt.Errorf(errRequestRejected)
+		}
+	} else if err != gorm.ErrRecordNotFound {
 		return nil, err
-	}
-	switch r.Status {
-	case FriendRequestStatusPending:
-		return nil, fmt.Errorf(errPendingRequestExists)
-	case FriendRequestStatusRejected:
-		return nil, fmt.Errorf(errRequestRejected)
 	}
 	_, err = requestDo.Where(
 		requestQ.SenderID.Eq(friendID),

@@ -81,6 +81,7 @@ func HandleWebSocket(c echo.Context) error {
 
 	// 处理未送达消息
 	messageService := service.NewMessageService(database.GetDB())
+	userService := service.NewUserService(database.GetDB())
 	undeliveredMessages, err := messageService.GetUndeliveredMessages(ctx, userIDStr)
 	if err != nil {
 		logger.GetLogger().Errorw("Failed to get undelivered messages", "user_id", userIDStr, "error", err)
@@ -96,14 +97,27 @@ func HandleWebSocket(c echo.Context) error {
 				chatType = ChatTypeGroup
 			}
 
+			fromUsername, err := userService.GetUsernameByUserID(ctx, msg.FromUserID)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to get username", "user_id", msg.FromUserID, "error", err)
+				fromUsername = ""
+			}
+			fromAvatar, err := userService.GetUserAvatarUrl(msg.FromUserID, fromUsername)
+			if err != nil {
+				logger.GetLogger().Errorw("Failed to get avatar", "user_id", msg.FromUserID, "error", err)
+				fromAvatar = ""
+			}
+
 			wsMsg := WSMessage{
-				Type:      MessageTypeText,
-				ChatType:  chatType,
-				From:      msg.FromUserID,
-				To:        msg.TargetID,
-				Content:   msg.Content,
-				MessageID: msg.MessageID,
-				Timestamp: msg.CreatedAt.UnixMilli(),
+				Type:         MessageTypeText,
+				ChatType:     chatType,
+				From:         msg.FromUserID,
+				FromUsername: fromUsername,
+				FromAvatar:   fromAvatar,
+				To:           msg.TargetID,
+				Content:      msg.Content,
+				MessageID:    msg.MessageID,
+				Timestamp:    msg.CreatedAt.UnixMilli(),
 			}
 
 			userConn.Send(wsMsg)
@@ -175,17 +189,32 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 			return
 		}
 
+		// 获取发送者用户信息
+		userService := service.NewUserService(database.GetDB())
+		fromUsername, err := userService.GetUsernameByUserID(context.Background(), msg.From)
+		if err != nil {
+			logger.GetLogger().Errorw("Failed to get username", "user_id", msg.From, "error", err)
+			fromUsername = ""
+		}
+		fromAvatar, err := userService.GetUserAvatarUrl(msg.From, fromUsername)
+		if err != nil {
+			logger.GetLogger().Errorw("Failed to get avatar", "user_id", msg.From, "error", err)
+			fromAvatar = ""
+		}
+
 		// 统一使用后端生成的消息ID
 		messageID := uuid.New().String()
 		// 创建新的消息对象用于广播，避免修改原始消息对象
 		broadcastMsg := WSMessage{
-			Type:      msg.Type,
-			ChatType:  msg.ChatType,
-			From:      msg.From,
-			To:        msg.To,
-			Content:   msg.Content,
-			MessageID: messageID,
-			Timestamp: time.Now().UnixMilli(),
+			Type:         msg.Type,
+			ChatType:     msg.ChatType,
+			From:         msg.From,
+			FromUsername: fromUsername,
+			FromAvatar:   fromAvatar,
+			To:           msg.To,
+			Content:      msg.Content,
+			MessageID:    messageID,
+			Timestamp:    time.Now().UnixMilli(),
 		}
 
 		messageService := service.NewMessageService(database.GetDB())

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -170,11 +171,11 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 	if err == nil {
 		switch r.Status {
 		case FriendRequestStatusPending:
-			return nil, fmt.Errorf(errPendingRequestExists)
+			return nil, fmt.Errorf(errFriendRequestPendingExists)
 		case FriendRequestStatusRejected:
 			return nil, fmt.Errorf(errRequestRejected)
 		}
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 	_, err = requestDo.Where(

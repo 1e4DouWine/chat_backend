@@ -41,6 +41,10 @@ type WSMessage struct {
 	ChatType ChatType `json:"chatType"`
 	// From 发送者用户ID
 	From string `json:"from"`
+	// FromUsername 发送者用户名
+	FromUsername string `json:"fromUsername,omitempty"`
+	// FromAvatar 发送者头像URL
+	FromAvatar string `json:"fromAvatar,omitempty"`
 	// To 接收者用户ID（私聊）或群组ID（群聊）
 	To string `json:"to"`
 	// Content 消息内容

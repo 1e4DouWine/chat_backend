@@ -170,6 +170,28 @@ go build -o chat_backend
 - `GET /api/v1/ws/online` - 获取在线用户列表
 - `GET /api/v1/ws/online/:id` - 查询用户是否在线
 
+#### WebSocket 心跳机制
+
+项目使用标准的 WebSocket ping/pong 控制帧实现心跳机制，确保连接的活跃性和可靠性。
+
+**实现细节：**
+
+- **心跳间隔**：每 30 秒发送一次 ping 控制帧
+- **超时控制**：使用 `context.WithTimeout` 设置 10 秒超时时间
+- **完整往返验证**：`Ping()` 方法会等待完整的 ping/pong 往返
+  - 发送 ping 控制帧
+  - 等待对方接收 ping
+  - 等待对方回复 pong
+  - 接收 pong 响应
+- **错误处理**：如果 `Ping()` 返回错误，说明连接可能已断开，会立即关闭连接
+- **自动回复**：浏览器会自动回复 pong，无需前端手动处理
+
+**代码实现位置：**[`internal/websocket/connection.go`](internal/websocket/connection.go:174-183)
+
+**日志输出：**
+- Ping 成功：`INFO Ping sent successfully user_id=<用户ID>`
+- Ping 失败：`ERROR Ping failed, connection may be closed user_id=<用户ID> error=<错误信息>`
+
 ### 其他
 
 - `GET /` - 服务欢迎信息

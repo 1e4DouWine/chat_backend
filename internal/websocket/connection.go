@@ -157,28 +157,19 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 			}
 			cancel()
 
-		// 心跳消息发送
+			// 心跳消息发送 - 使用 Ping() 方法发送 ping 控制帧
 		case <-ticker.C:
-			// 构建心跳消息
-			heartbeatMsg := WSMessage{
-				Type:      MessageTypeHeartbeat,
-				Timestamp: time.Now().UnixMilli(),
-			}
-			data, err := json.Marshal(heartbeatMsg)
-			if err != nil {
-				logger.GetLogger().Errorw("Marshal heartbeat error", "user_id", uc.UserID, "error", err)
-				continue
-			}
-
-			// 创建带超时的写入上下文
-			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			// 发送心跳消息
-			if err := uc.Conn.Write(writeCtx, websocket.MessageText, data); err != nil {
+			// 创建带超时的 ping 上下文，建议 5-10 秒
+			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			// 发送 ping 控制帧，浏览器会自动回复 pong
+			if err := uc.Conn.Ping(pingCtx); err != nil {
 				cancel()
-				logger.GetLogger().Errorw("Write heartbeat error", "user_id", uc.UserID, "error", err)
+				logger.GetLogger().Errorw("Ping failed, connection may be closed", "user_id", uc.UserID, "error", err)
+				// Ping() 返回错误说明连接可能已断开，关闭连接
 				return
 			}
 			cancel()
+			logger.GetLogger().Infow("Ping sent successfully", "user_id", uc.UserID)
 		}
 	}
 }

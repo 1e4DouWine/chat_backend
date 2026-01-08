@@ -178,16 +178,6 @@ func handleMessage(conn *UserConnection, msg WSMessage) {
 
 	// 根据消息类型进行处理
 	switch msg.Type {
-	case MessageTypeHeartbeat:
-		logger.GetLogger().Debugw("Heartbeat received", "user_id", conn.UserID)
-		heartbeatMsg := WSMessage{
-			Type:      MessageTypeHeartbeat,
-			From:      "system",
-			To:        conn.UserID,
-			Timestamp: time.Now().UnixMilli(),
-		}
-		conn.Send(heartbeatMsg)
-
 	case MessageTypeText, MessageTypeImage, MessageTypeFile:
 		// 验证消息内容
 		if !validateMessageContent(msg.Type, msg.Content) {

@@ -5,3 +5,4 @@ configs/*.yaml
 chat_backend.exe
 .idea/
 docs/
+.vscode/

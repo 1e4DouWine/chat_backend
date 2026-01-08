@@ -63,8 +63,15 @@ func HandleWebSocket(c echo.Context) error {
 	cm := GetConnectionManager()
 	cm.AddConnection(userIDStr, userConn)
 
-	// 延迟执行：连接关闭时从管理器移除
-	defer cm.RemoveConnection(userIDStr)
+	// 通知在线的好友该用户已上线
+	NotifyFriendsUserStatusChange(userIDStr, true)
+
+	// 延迟执行：连接关闭时从管理器移除并通知好友
+	defer func() {
+		cm.RemoveConnection(userIDStr)
+		// 通知在线的好友该用户已下线
+		NotifyFriendsUserStatusChange(userIDStr, false)
+	}()
 
 	// 发送连接成功消息
 	connectedMsg := WSMessage{
@@ -434,4 +441,44 @@ func BroadcastSystemMessage(content string, excludeUserIDs ...string) {
 	// 获取连接管理器并广播消息
 	cm := GetConnectionManager()
 	cm.Broadcast(msg, excludeUserIDs...)
+}
+
+// NotifyFriendsUserStatusChange 通知好友用户状态变化
+// 参数:
+//   - userID: 状态变化的用户ID
+//   - isOnline: 是否在线
+func NotifyFriendsUserStatusChange(userID string, isOnline bool) {
+	userService := service.NewUserService(database.GetDB())
+	cm := GetConnectionManager()
+
+	// 获取用户信息
+	username, err := userService.GetUsernameByUserID(context.Background(), userID)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to get username", "user_id", userID, "error", err)
+		return
+	}
+
+	// 获取好友列表
+	friendList, err := userService.GetFriendList(context.Background(), userID, service.FriendStatusNormal)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to get friend list", "user_id", userID, "error", err)
+		return
+	}
+
+	// 构建系统消息内容
+	var content string
+	if isOnline {
+		content = "您的好友 " + username + " 已上线"
+	} else {
+		content = "您的好友 " + username + " 已下线"
+	}
+
+	// 向在线的好友发送系统消息
+	for _, friend := range friendList {
+		friendUserID := friend.UserID
+		// 检查好友是否在线
+		if cm.IsOnline(friendUserID) {
+			SendSystemMessage(friendUserID, content)
+		}
+	}
 }

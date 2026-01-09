@@ -55,10 +55,18 @@ func (cm *ConnectionManager) AddConnection(userID string, conn *UserConnection) 
 	// 存储新连接
 	cm.connections[userID] = conn
 
-	// 更新 Prometheus 监控指标
+	// 更新 Prometheus 监控指标（在锁内直接计算，避免死锁）
 	metrics.IncrementWebSocketConnection()
 	metrics.SetWebSocketConnections(float64(len(cm.connections)))
-	metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
+
+	// 计算在线用户数量（不调用 GetOnlineUserCount 以避免死锁）
+	onlineCount := 0
+	for _, c := range cm.connections {
+		if !c.IsClosed() {
+			onlineCount++
+		}
+	}
+	metrics.SetOnlineUsers(float64(onlineCount))
 
 	logger.GetLogger().Infow("Connection added", "user_id", userID, "total_connections", len(cm.connections))
 }
@@ -76,10 +84,18 @@ func (cm *ConnectionManager) RemoveConnection(userID string) {
 		// 从映射表中删除
 		delete(cm.connections, userID)
 
-		// 更新 Prometheus 监控指标
+		// 更新 Prometheus 监控指标（在锁内直接计算，避免死锁）
 		metrics.IncrementWebSocketDisconnection()
 		metrics.SetWebSocketConnections(float64(len(cm.connections)))
-		metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
+
+		// 计算在线用户数量（不调用 GetOnlineUserCount 以避免死锁）
+		onlineCount := 0
+		for _, c := range cm.connections {
+			if !c.IsClosed() {
+				onlineCount++
+			}
+		}
+		metrics.SetOnlineUsers(float64(onlineCount))
 
 		logger.GetLogger().Infow("Connection removed", "user_id", userID, "total_connections", len(cm.connections))
 	}
@@ -300,9 +316,18 @@ func (cm *ConnectionManager) CleanupStaleConnections(timeout time.Duration) {
 	}
 
 	if cleanedCount > 0 {
-		// 更新 Prometheus 监控指标
+		// 更新 Prometheus 监控指标（在锁内直接计算，避免死锁）
 		metrics.SetWebSocketConnections(float64(len(cm.connections)))
-		metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
+
+		// 计算在线用户数量（不调用 GetOnlineUserCount 以避免死锁）
+		onlineCount := 0
+		for _, c := range cm.connections {
+			if !c.IsClosed() {
+				onlineCount++
+			}
+		}
+		metrics.SetOnlineUsers(float64(onlineCount))
+
 		logger.GetLogger().Infow("Cleanup completed", "cleaned_count", cleanedCount, "remaining_connections", len(cm.connections))
 	}
 }

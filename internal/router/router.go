@@ -6,6 +6,7 @@ import (
 	"chat_backend/internal/websocket"
 
 	"github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // InitRouter 初始化所有路由
@@ -21,6 +22,9 @@ func InitRouter(e *echo.Echo) {
 	groupRoutes(apiV1)
 	messageRoutes(apiV1)
 	wsRoutes(e)
+
+	// Prometheus metrics 端点
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 }
 
 // helloRoutes 注册hello相关路由

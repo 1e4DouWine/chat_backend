@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"chat_backend/internal/metrics"
 	"chat_backend/pkg/logger"
 	"sync"
 	"time"
@@ -53,6 +54,12 @@ func (cm *ConnectionManager) AddConnection(userID string, conn *UserConnection) 
 
 	// 存储新连接
 	cm.connections[userID] = conn
+
+	// 更新 Prometheus 监控指标
+	metrics.IncrementWebSocketConnection()
+	metrics.SetWebSocketConnections(float64(len(cm.connections)))
+	metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
+
 	logger.GetLogger().Infow("Connection added", "user_id", userID, "total_connections", len(cm.connections))
 }
 
@@ -68,6 +75,12 @@ func (cm *ConnectionManager) RemoveConnection(userID string) {
 		conn.Close()
 		// 从映射表中删除
 		delete(cm.connections, userID)
+
+		// 更新 Prometheus 监控指标
+		metrics.IncrementWebSocketDisconnection()
+		metrics.SetWebSocketConnections(float64(len(cm.connections)))
+		metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
+
 		logger.GetLogger().Infow("Connection removed", "user_id", userID, "total_connections", len(cm.connections))
 	}
 }
@@ -75,6 +88,7 @@ func (cm *ConnectionManager) RemoveConnection(userID string) {
 // GetConnection 获取指定用户的连接
 // 参数:
 //   - userID: 用户唯一标识符
+//
 // 返回:
 //   - *UserConnection: 用户连接对象
 //   - bool: 是否存在该连接
@@ -89,6 +103,7 @@ func (cm *ConnectionManager) GetConnection(userID string) (*UserConnection, bool
 // IsOnline 检查用户是否在线
 // 参数:
 //   - userID: 用户唯一标识符
+//
 // 返回:
 //   - bool: 用户是否在线
 func (cm *ConnectionManager) IsOnline(userID string) bool {
@@ -107,6 +122,7 @@ func (cm *ConnectionManager) IsOnline(userID string) bool {
 // 参数:
 //   - userID: 目标用户ID
 //   - msg: 要发送的消息
+//
 // 返回:
 //   - bool: 是否成功发送
 func (cm *ConnectionManager) SendToUser(userID string, msg WSMessage) bool {
@@ -118,7 +134,12 @@ func (cm *ConnectionManager) SendToUser(userID string, msg WSMessage) bool {
 		return false
 	}
 
-	return conn.Send(msg)
+	success := conn.Send(msg)
+	if success {
+		// 更新发送消息计数
+		metrics.IncrementMessagesSent("private")
+	}
+	return success
 }
 
 // Broadcast 广播消息给所有在线用户
@@ -146,6 +167,11 @@ func (cm *ConnectionManager) Broadcast(msg WSMessage, excludeUserIDs ...string) 
 		if conn.Send(msg) {
 			sentCount++
 		}
+	}
+
+	// 更新发送消息计数
+	if sentCount > 0 {
+		metrics.IncrementMessagesSent("broadcast")
 	}
 
 	logger.GetLogger().Debugw("Broadcast completed", "sent_count", sentCount, "total_connections", len(cm.connections))
@@ -221,6 +247,11 @@ func (cm *ConnectionManager) BroadcastToGroup(msg WSMessage, targetUserIDs []str
 		}
 	}
 
+	// 更新发送消息计数
+	if sentCount > 0 {
+		metrics.IncrementMessagesSent("group")
+	}
+
 	logger.GetLogger().Debugw("Group broadcast completed", "sent_count", sentCount, "target_users", len(targetUserIDs))
 }
 
@@ -269,6 +300,9 @@ func (cm *ConnectionManager) CleanupStaleConnections(timeout time.Duration) {
 	}
 
 	if cleanedCount > 0 {
+		// 更新 Prometheus 监控指标
+		metrics.SetWebSocketConnections(float64(len(cm.connections)))
+		metrics.SetOnlineUsers(float64(cm.GetOnlineUserCount()))
 		logger.GetLogger().Infow("Cleanup completed", "cleaned_count", cleanedCount, "remaining_connections", len(cm.connections))
 	}
 }

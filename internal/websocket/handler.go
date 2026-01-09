@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"chat_backend/internal/database"
+	"chat_backend/internal/metrics"
 	"chat_backend/internal/model"
 	"chat_backend/internal/service"
 	"chat_backend/pkg/logger"
@@ -175,6 +176,18 @@ func validateMessageContent(msgType MessageType, content string) bool {
 //   - msg: 接收到的消息
 func handleMessage(conn *UserConnection, msg WSMessage) {
 	logger.GetLogger().Infow("Received message", "type", msg.Type, "chat_type", msg.ChatType, "from", msg.From, "to", msg.To)
+
+	// 更新接收消息计数
+	var msgType string
+	switch msg.ChatType {
+	case ChatTypePrivate:
+		msgType = "private"
+	case ChatTypeGroup:
+		msgType = "group"
+	default:
+		msgType = "unknown"
+	}
+	metrics.IncrementMessagesReceived(msgType)
 
 	// 根据消息类型进行处理
 	switch msg.Type {

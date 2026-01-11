@@ -205,6 +205,7 @@ go build -o chat_backend
 ```
 chat_backend/
 ├── internal/
+│   ├── cache/           # Redis 缓存管理
 │   ├── config/          # 配置管理
 │   ├── dao/             # 数据访问对象
 │   ├── database/        # 数据库初始化和迁移
@@ -215,6 +216,8 @@ chat_backend/
 │   ├── model/           # 数据模型
 │   ├── response/        # 统一响应格式
 │   ├── router/          # 路由配置
+│   │   └── api/
+│   │       └── v1/     # API v1 路由
 │   ├── service/         # 业务逻辑
 │   └── websocket/       # WebSocket 处理
 ├── pkg/
@@ -222,9 +225,12 @@ chat_backend/
 │   ├── logger/          # 日志工具
 │   └── utils/           # 工具函数
 ├── configs/             # 配置文件
+│   └── config.yaml.example
+├── .gitignore
 ├── main.go              # 程序入口
 ├── go.mod               # Go 模块文件
-└── go.sum               # 依赖锁定文件
+├── go.sum               # 依赖锁定文件
+└── README.md            # 项目文档
 ```
 
 ## Redis 缓存设计
@@ -457,10 +463,12 @@ pipe.Expire(ctx, key, window)  // 设置过期时间
 按优先级生成限流键：
 
 ```go
-1. 优先级最高：用户ID → "{prefix}:user:{userID}"
+1. 优先级最高：用户ID → "{prefix}:user:{user_id}"
 2. 其次：IP地址 → "{prefix}:ip:{ip}"
 3. 最后：默认键 → "{prefix}:default"
 ```
+
+**代码实现位置：**[`internal/middleware/rate_limit.go`](internal/middleware/rate_limit.go:134-148)
 
 ### 响应头
 

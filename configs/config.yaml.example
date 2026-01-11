@@ -1,0 +1,22 @@
+server:
+  port: 8080
+  host: "localhost"
+
+database:
+  host: "your-database-host"
+  port: 5432
+  user: "your-database-user"
+  password: "your-database-password"
+  dbname: "your-database-name"
+
+redis:
+  host: "your-redis-host"
+  port: 6379
+  username: ""
+  password: "your-redis-password"
+  db: 0
+
+jwt:
+  secret: "your-secret-key-here"
+  accessExpiry: 24
+  refreshExpiry: 168

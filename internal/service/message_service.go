@@ -6,14 +6,25 @@ import (
 	"chat_backend/internal/dto"
 	"chat_backend/internal/model"
 	"context"
+	"fmt"
+	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 const (
-	avatarUrlBase = "https://ui-avatars.com/api/"
-	avatarSize    = "128"
+	// AvatarUrlBase 头像服务基础URL
+	AvatarUrlBase = "https://ui-avatars.com/api/"
+	// AvatarSize 头像尺寸（像素）
+	AvatarSize = "128"
+	// DefaultMessageLimit 默认消息查询数量限制
+	DefaultMessageLimit = 20
+	// MaxMessageLimit 最大消息查询数量限制
+	MaxMessageLimit = 100
+	// BatchInsertSize 批量插入大小
+	BatchInsertSize = 100
 )
 
 type MessageService struct {
@@ -33,13 +44,18 @@ func NewMessageService(db *gorm.DB) *MessageService {
 }
 
 func (s *MessageService) GetPrivateMessages(ctx context.Context, userID string, targetUserID string, limit int, cursor string) (*dto.GetMessagesResponse, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
+	if limit <= 0 || limit > MaxMessageLimit {
+		limit = DefaultMessageLimit
 	}
 
 	// 先尝试从缓存获取消息
 	cachedMessages, err := s.messageCache.GetCachedPrivateMessages(ctx, userID, targetUserID, limit)
 	if err == nil && len(cachedMessages) > 0 {
+		// 按时间戳降序排序（最新消息在前）
+		sort.Slice(cachedMessages, func(i, j int) bool {
+			return cachedMessages[i].CreatedAt.After(cachedMessages[j].CreatedAt)
+		})
+
 		// 转换为响应格式
 		var messageResponses []dto.MessageResponse
 		for _, msg := range cachedMessages {
@@ -137,13 +153,18 @@ func (s *MessageService) GetPrivateMessages(ctx context.Context, userID string, 
 }
 
 func (s *MessageService) GetGroupMessages(ctx context.Context, groupID string, limit int, cursor string) (*dto.GetMessagesResponse, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
+	if limit <= 0 || limit > MaxMessageLimit {
+		limit = DefaultMessageLimit
 	}
 
 	// 先尝试从缓存获取消息
 	cachedMessages, err := s.messageCache.GetCachedGroupMessages(ctx, groupID, limit)
 	if err == nil && len(cachedMessages) > 0 {
+		// 按时间戳降序排序（最新消息在前）
+		sort.Slice(cachedMessages, func(i, j int) bool {
+			return cachedMessages[i].CreatedAt.After(cachedMessages[j].CreatedAt)
+		})
+
 		// 转换为响应格式
 		var messageResponses []dto.MessageResponse
 		for _, msg := range cachedMessages {
@@ -252,6 +273,11 @@ func (s *MessageService) getUserInfo(ctx context.Context, userID string) (*dto.U
 		return nil, err
 	}
 
+	// 检查 userInfo 是否为 nil，防止 nil 解引用
+	if userInfo == nil {
+		return nil, fmt.Errorf("user info not found for userID: %s", userID)
+	}
+
 	return &dto.UserInfo{
 		UserID:   userInfo.UserID,
 		Username: userInfo.Username,
@@ -289,10 +315,30 @@ func (s *MessageService) getGroupInfo(ctx context.Context, groupID string) (*dto
 
 func (s *MessageService) generateAvatarUrl(userID string, username string) string {
 	color := colorFromUUID(userID)
-	return avatarUrlBase + "?name=" + username + "&background=" + color + "&rounded=true&size=" + avatarSize
+	return AvatarUrlBase + "?name=" + username + "&background=" + color + "&rounded=true&size=" + AvatarSize
 }
 
 func (s *MessageService) SendPrivateMessage(ctx context.Context, fromUserID string, targetUserID string, content string, messageID string, isTargetOnline bool) (*model.Message, error) {
+	// 先生成消息ID用于缓存
+	if messageID == "" {
+		// 使用UUID生成消息ID（如果未提供）
+		messageID = uuid.New().String()
+	}
+
+	// 先缓存消息详情（预缓存）
+	cachedMsg := &cache.CachedMessage{
+		MessageID:  messageID,
+		FromUserID: fromUserID,
+		TargetID:   targetUserID,
+		Type:       string(model.MessageTypePrivate),
+		Content:    content,
+		CreatedAt:  time.Now(),
+	}
+	// 更新发送方的消息缓存
+	_ = s.messageCache.CachePrivateMessage(ctx, fromUserID, targetUserID, cachedMsg)
+	// 更新接收方的消息缓存
+	_ = s.messageCache.CachePrivateMessage(ctx, targetUserID, fromUserID, cachedMsg)
+
 	var message *model.Message
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -365,6 +411,24 @@ func (s *MessageService) updatePrivateConversationCache(ctx context.Context, use
 }
 
 func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string, groupID string, content string, messageID string, recipientIDs []string, onlineUserIDs map[string]bool) (*model.Message, error) {
+	// 先生成消息ID用于缓存
+	if messageID == "" {
+		// 使用UUID生成消息ID（如果未提供）
+		messageID = uuid.New().String()
+	}
+
+	// 先缓存消息详情（预缓存）
+	cachedMsg := &cache.CachedMessage{
+		MessageID:  messageID,
+		FromUserID: fromUserID,
+		TargetID:   groupID,
+		Type:       string(model.MessageTypeGroup),
+		Content:    content,
+		CreatedAt:  time.Now(),
+	}
+	// 更新群聊消息缓存
+	_ = s.messageCache.CacheGroupMessage(ctx, groupID, cachedMsg)
+
 	var message *model.Message
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -402,7 +466,7 @@ func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string
 		}
 
 		if len(receipts) > 0 {
-			if err := rdo.CreateInBatches(receipts, 100); err != nil {
+			if err := rdo.CreateInBatches(receipts, BatchInsertSize); err != nil {
 				return err
 			}
 		}
@@ -444,12 +508,8 @@ func (s *MessageService) updateGroupConversationCache(ctx context.Context, group
 		LastSenderName: senderInfo.Username,
 	}
 
-	// 批量更新所有群成员的会话缓存
-	for _, recipientID := range recipientIDs {
-		_ = s.conversationCache.SetGroupConversation(ctx, recipientID, conv)
-	}
-
-	return nil
+	// 使用批量更新方法（内部使用 Redis Pipeline）
+	return s.conversationCache.BatchSetGroupConversationForUsers(ctx, recipientIDs, conv)
 }
 
 func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID string) ([]dto.MessageResponse, error) {
@@ -481,12 +541,60 @@ func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID stri
 		return nil, err
 	}
 
+	// 批量收集所有需要查询的用户ID和群组ID，避免N+1查询
+	userIDs := make([]string, 0, len(messages))
+	groupIDs := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		userIDs = append(userIDs, msg.FromUserID)
+		if msg.Type == model.MessageTypePrivate {
+			userIDs = append(userIDs, msg.TargetID)
+		} else if msg.Type == model.MessageTypeGroup {
+			groupIDs = append(groupIDs, msg.TargetID)
+		}
+	}
+
+	// 批量查询用户信息
+	userMap := make(map[string]*dto.UserInfo)
+	if len(userIDs) > 0 {
+		userQ := dao.Use(s.db).User
+		userDo := userQ.WithContext(ctx)
+		users, err := userDo.Where(userQ.ID.In(userIDs...)).Find()
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			userMap[user.ID] = &dto.UserInfo{
+				UserID:   user.ID,
+				Username: user.Username,
+				Avatar:   s.generateAvatarUrl(user.ID, user.Username),
+			}
+		}
+	}
+
+	// 批量查询群组信息
+	groupMap := make(map[string]*dto.GroupInfo)
+	if len(groupIDs) > 0 {
+		groupQ := dao.Use(s.db).Group
+		groupDo := groupQ.WithContext(ctx)
+		groups, err := groupDo.Where(groupQ.ID.In(groupIDs...)).Find()
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range groups {
+			groupMap[group.ID] = &dto.GroupInfo{
+				GroupID: group.ID,
+				Name:    group.Name,
+			}
+		}
+	}
+
+	// 构建响应
 	messageResponses := make([]dto.MessageResponse, 0, len(messages))
 	for _, msg := range messages {
-		fromUser, _ := s.getUserInfo(ctx, msg.FromUserID)
+		fromUser := userMap[msg.FromUserID]
 
 		if msg.Type == model.MessageTypePrivate {
-			targetUser, _ := s.getUserInfo(ctx, msg.TargetID)
+			targetUser := userMap[msg.TargetID]
 			messageResponses = append(messageResponses, dto.MessageResponse{
 				MessageID:  msg.ID,
 				FromUserID: msg.FromUserID,
@@ -498,7 +606,7 @@ func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID stri
 				TargetUser: targetUser,
 			})
 		} else {
-			groupInfo, _ := s.getGroupInfo(ctx, msg.TargetID)
+			groupInfo := groupMap[msg.TargetID]
 			messageResponses = append(messageResponses, dto.MessageResponse{
 				MessageID:   msg.ID,
 				FromUserID:  msg.FromUserID,
@@ -516,6 +624,11 @@ func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID stri
 }
 
 func (s *MessageService) MarkMessagesAsDelivered(ctx context.Context, userID string, messageIDs []string) error {
+	// 先删除消息回执缓存（如果有的话）
+	for _, messageID := range messageIDs {
+		_ = s.messageCache.InvalidateMessage(ctx, messageID)
+	}
+
 	rq := dao.Use(s.db).MessageReceipt
 	rdo := rq.WithContext(ctx)
 

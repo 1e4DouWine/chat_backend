@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// MessageTTL 消息缓存过期时间（24小时）
-	MessageTTL = 24 * time.Hour
+	// MessageTTL 消息缓存过期时间（7天）
+	MessageTTL = 7 * 24 * time.Hour
 	// MessageCacheLimit 每个会话缓存的消息数量限制
 	MessageCacheLimit = 100
 )

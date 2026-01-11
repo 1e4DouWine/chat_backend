@@ -24,11 +24,13 @@ type ServerConfig struct {
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	DBName   string `yaml:"dbname"`
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	User         string `yaml:"user"`
+	Password     string `yaml:"password"`
+	DBName       string `yaml:"dbname"`
+	MaxOpenConns int    `yaml:"maxOpenConns"` // 最大打开连接数
+	MaxIdleConns int    `yaml:"maxIdleConns"` // 最大空闲连接数
 }
 
 // RedisConfig Redis配置

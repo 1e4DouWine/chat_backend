@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	// ConversationTTL 会话列表缓存过期时间（5分钟）
-	ConversationTTL = 5 * time.Minute
+	// ConversationTTL 会话列表缓存过期时间（7天）
+	ConversationTTL = 7 * 24 * time.Hour
 )
 
 // PrivateConversation 私聊会话
@@ -286,6 +286,40 @@ func (ccm *ConversationCacheManager) UpdatePrivateConversation(ctx context.Conte
 // UpdateGroupConversation 更新群聊会话缓存
 func (ccm *ConversationCacheManager) UpdateGroupConversation(ctx context.Context, userID string, conv *GroupConversation) error {
 	return ccm.SetGroupConversation(ctx, userID, conv)
+}
+
+// BatchSetGroupConversationForUsers 批量设置群聊会话缓存给多个用户
+// 用于群消息发送时，一次性更新所有群成员的会话缓存
+func (ccm *ConversationCacheManager) BatchSetGroupConversationForUsers(ctx context.Context, userIDs []string, conv *GroupConversation) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	// 使用 Pipeline 批量设置
+	pipeline := ccm.redis.Pipeline().Pipeline()
+
+	for _, userID := range userIDs {
+		key := KeyConversations.Build(userID)
+		field := "group:" + conv.GroupID
+		data, err := json.Marshal(conv)
+		if err != nil {
+			continue
+		}
+		pipeline.HSet(ctx, key, field, data)
+	}
+
+	_, err := ccm.redis.Pipeline().Exec(ctx, pipeline)
+	if err != nil {
+		return WrapCacheError("BatchSetGroupConversationForUsers", "", err)
+	}
+
+	// 为所有用户设置过期时间
+	for _, userID := range userIDs {
+		key := KeyConversations.Build(userID)
+		_ = ccm.redis.String().Expire(ctx, key, ConversationTTL)
+	}
+
+	return nil
 }
 
 // GetConversationCount 获取会话数量

@@ -73,9 +73,18 @@ func initPostgreSQLWithGORM(cfg config.DatabaseConfig) error {
 		return fmt.Errorf("连接测试失败: %w", err)
 	}
 
-	// 设置连接池参数
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(5)
+	// 设置连接池参数（从配置文件读取，如果未配置则使用默认值）
+	maxOpenConns := cfg.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = 25 // 默认最大打开连接数
+	}
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+
+	maxIdleConns := cfg.MaxIdleConns
+	if maxIdleConns <= 0 {
+		maxIdleConns = 5 // 默认最大空闲连接数
+	}
+	sqlDB.SetMaxIdleConns(maxIdleConns)
 
 	db = database
 	return nil

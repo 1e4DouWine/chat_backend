@@ -1,6 +1,7 @@
 package service
 
 import (
+	"chat_backend/internal/cache"
 	"chat_backend/internal/dao"
 	"chat_backend/internal/dto"
 	"chat_backend/internal/model"
@@ -44,13 +45,40 @@ const (
 )
 
 type GroupService struct {
-	db *gorm.DB
+	db          *gorm.DB
+	userCache   *cache.UserCacheManager
+	friendCache *cache.FriendCacheManager
 }
 
 func NewGroupService(db *gorm.DB) *GroupService {
 	return &GroupService{
-		db: db,
+		db:          db,
+		userCache:   cache.NewUserCacheManager(),
+		friendCache: cache.NewFriendCacheManager(),
 	}
+}
+
+// getUserInfo 从缓存或数据库获取用户信息
+func (s *GroupService) getUserInfo(ctx context.Context, userID string) (*cache.UserInfo, error) {
+	return s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.ID.Eq(id)).First()
+		if err != nil {
+			return nil, err
+		}
+		return &cache.UserInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Avatar:   s.generateAvatarUrl(user.ID, user.Username),
+		}, nil
+	})
+}
+
+// generateAvatarUrl 生成头像URL
+func (s *GroupService) generateAvatarUrl(userID string, username string) string {
+	color := colorFromUUID(userID)
+	return fmt.Sprintf("https://ui-avatars.com/api/?name=%s&background=%s&rounded=true&size=128", username, color)
 }
 
 // CreateGroup 创建群组

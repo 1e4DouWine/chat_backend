@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	// UserInfoTTL 用户信息缓存过期时间（1小时）
-	UserInfoTTL = 1 * time.Hour
-	// UsernameToIDTTL 用户名到ID映射缓存过期时间（1小时）
-	UsernameToIDTTL = 1 * time.Hour
+	// UserInfoTTL 用户信息缓存过期时间（7天）
+	UserInfoTTL = 7 * 24 * time.Hour
+	// UsernameToIDTTL 用户名到ID映射缓存过期时间（7天）
+	UsernameToIDTTL = 7 * 24 * time.Hour
 )
 
 // UserInfo 用户信息

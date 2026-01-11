@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	// FriendListTTL 好友列表缓存过期时间（30分钟）
-	FriendListTTL = 30 * time.Minute
-	// FriendRequestTTL 好友申请缓存过期时间（5分钟）
-	FriendRequestTTL = 5 * time.Minute
+	// FriendListTTL 好友列表缓存过期时间（7天）
+	FriendListTTL = 7 * 24 * time.Hour
+	// FriendRequestTTL 好友申请缓存过期时间（7天）
+	FriendRequestTTL = 7 * 24 * time.Hour
 )
 
 // FriendInfo 好友信息

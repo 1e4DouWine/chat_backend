@@ -44,9 +44,9 @@ func NewUserConnection(userID string, conn *websocket.Conn) *UserConnection {
 		UserID:              userID,
 		Conn:                conn,
 		ConnectedAt:         time.Now(),
-		SendChan:            make(chan WSMessage, 256), // 带缓冲的发送通道，容量256
-		CloseChan:           make(chan struct{}),       // 无缓冲关闭通道
-		closed:              false,                     // 初始状态为未关闭
+		SendChan:            make(chan WSMessage, SendChanBufferSize), // 带缓冲的发送通道，容量由 SendChanBufferSize 定义
+		CloseChan:           make(chan struct{}),                      // 无缓冲关闭通道
+		closed:              false,                                    // 初始状态为未关闭
 		onlineStatusManager: cache.NewOnlineStatusManager(),
 	}
 }
@@ -123,8 +123,8 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 		uc.Close()
 	}()
 
-	// 创建心跳定时器，30秒间隔
-	ticker := time.NewTicker(30 * time.Second)
+	// 创建心跳定时器，间隔由 HeartbeatInterval 定义
+	ticker := time.NewTicker(HeartbeatInterval)
 	defer ticker.Stop()
 
 	for {
@@ -151,8 +151,8 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 				continue
 			}
 
-			// 创建带超时的写入上下文
-			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			// 创建带超时的写入上下文，超时时间由 WriteTimeout 定义
+			writeCtx, cancel := context.WithTimeout(ctx, WriteTimeout)
 			// 向WebSocket连接写入消息
 			if err = uc.Conn.Write(writeCtx, websocket.MessageText, data); err != nil {
 				cancel()
@@ -161,10 +161,10 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 			}
 			cancel()
 
-			// 心跳消息发送 - 使用 Ping() 方法发送 ping 控制帧
+		// 心跳消息发送 - 使用 Ping() 方法发送 ping 控制帧
 		case <-ticker.C:
-			// 创建带超时的 ping 上下文，建议 5-10 秒
-			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			// 创建带超时的 ping 上下文，超时时间由 PingTimeout 定义
+			pingCtx, cancel := context.WithTimeout(ctx, PingTimeout)
 			// 发送 ping 控制帧，浏览器会自动回复 pong
 			if err := uc.Conn.Ping(pingCtx); err != nil {
 				cancel()

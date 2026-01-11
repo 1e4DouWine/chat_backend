@@ -1,5 +1,23 @@
 package websocket
 
+import "time"
+
+// WebSocket 配置常量
+const (
+	// SendChanBufferSize 发送通道缓冲区大小
+	// 用于缓存待发送的消息，防止消息丢失
+	SendChanBufferSize = 256
+	// HeartbeatInterval 心跳间隔时间
+	// 用于保持 WebSocket 连接活跃
+	HeartbeatInterval = 30 * time.Second
+	// WriteTimeout 写入超时时间
+	// 用于防止写入操作长时间阻塞
+	WriteTimeout = 10 * time.Second
+	// PingTimeout Ping 操作超时时间
+	// 用于检测连接是否仍然活跃
+	PingTimeout = 10 * time.Second
+)
+
 // MessageType 定义了WebSocket消息的类型
 // 用于区分不同类型的消息内容
 type MessageType string
@@ -13,8 +31,6 @@ const (
 	MessageTypeFile MessageType = "file"
 	// MessageTypeSystem 系统消息
 	MessageTypeSystem MessageType = "system"
-	// MessageTypeHeartbeat 心跳消息，用于保持连接活跃
-	MessageTypeHeartbeat MessageType = "heartbeat"
 	// MessageTypeAck 确认消息，用于确认消息接收状态
 	MessageTypeAck MessageType = "ack"
 	// MessageTypeConnected 连接成功消息，用于通知客户端连接已建立

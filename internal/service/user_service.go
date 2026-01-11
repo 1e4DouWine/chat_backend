@@ -16,17 +16,30 @@ import (
 )
 
 const (
+	// ActionParamAccept 接受好友申请的参数值
 	ActionParamAccept = "accept"
+	// ActionParamReject 拒绝好友申请的参数值
 	ActionParamReject = "reject"
 
+	// FriendRequestExpireDays 好友申请过期天数
 	FriendRequestExpireDays = 7
 
-	FriendRequestStatusPending  = "pending"
+	// FriendRequestStatusPending 好友申请待处理状态
+	FriendRequestStatusPending = "pending"
+	// FriendRequestStatusRejected 好友申请已拒绝状态
 	FriendRequestStatusRejected = "rejected"
 
-	FriendStatusNormal    = "normal"
+	// FriendStatusNormal 好友关系正常状态
+	FriendStatusNormal = "normal"
+	// FriendStatusBlacklist 好友关系黑名单状态
 	FriendStatusBlacklist = "blacklist"
-	FriendStatusRemoved   = "removed"
+	// FriendStatusRemoved 好友关系已删除状态
+	FriendStatusRemoved = "removed"
+
+	// AvatarColorMin 头像颜色RGB最小值
+	AvatarColorMin = 50
+	// AvatarColorMax 头像颜色RGB最大值
+	AvatarColorMax = 200
 )
 
 const (
@@ -60,8 +73,9 @@ func NewUserService(db *gorm.DB) *UserService {
 	}
 }
 
-// GetMe 获取自己的资料
-func (s *UserService) GetMe(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
+// getUserInfoByID 根据用户ID获取用户信息的公共方法
+// 用于 GetMe 和 GetUserInfo 的公共逻辑
+func (s *UserService) getUserInfoByID(ctx context.Context, userID string) (*dto.UserInfoResponse, error) {
 	// 先尝试从缓存获取
 	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
 		q := dao.Use(s.db).User
@@ -84,64 +98,31 @@ func (s *UserService) GetMe(ctx context.Context, userID string, username string)
 		return nil, err
 	}
 
+	// 检查 userInfo 是否为 nil，防止 nil 解引用
+	if userInfo == nil {
+		return nil, fmt.Errorf("user info not found for userID: %s", userID)
+	}
+
 	return &dto.UserInfoResponse{
 		UserID:   userInfo.UserID,
 		Username: userInfo.Username,
 		Avatar:   userInfo.Avatar,
 	}, nil
+}
+
+// GetMe 获取自己的资料
+func (s *UserService) GetMe(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
+	return s.getUserInfoByID(ctx, userID)
 }
 
 // GetUserInfo 获取用户资料
 func (s *UserService) GetUserInfo(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
-	// 先尝试从缓存获取
-	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
-		q := dao.Use(s.db).User
-		do := q.WithContext(ctx)
-		user, err := do.Where(q.ID.Eq(id)).First()
-		if err != nil {
-			return nil, err
-		}
-		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
-		if err != nil {
-			return nil, err
-		}
-		return &cache.UserInfo{
-			UserID:   user.ID,
-			Username: user.Username,
-			Avatar:   avatarUrl,
-		}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &dto.UserInfoResponse{
-		UserID:   userInfo.UserID,
-		Username: userInfo.Username,
-		Avatar:   userInfo.Avatar,
-	}, nil
+	return s.getUserInfoByID(ctx, userID)
 }
 
 // GetUsernameByUserID 通过 userID 查询 username
 func (s *UserService) GetUsernameByUserID(ctx context.Context, userID string) (string, error) {
-	// 先尝试从缓存获取
-	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
-		q := dao.Use(s.db).User
-		do := q.WithContext(ctx)
-		user, err := do.Where(q.ID.Eq(id)).First()
-		if err != nil {
-			return nil, err
-		}
-		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
-		if err != nil {
-			return nil, err
-		}
-		return &cache.UserInfo{
-			UserID:   user.ID,
-			Username: user.Username,
-			Avatar:   avatarUrl,
-		}, nil
-	})
+	userInfo, err := s.getUserInfoByID(ctx, userID)
 	if err != nil {
 		return "", err
 	}
@@ -175,9 +156,10 @@ func (s *UserService) GetUserIDByUsername(ctx context.Context, username string) 
 func (s *UserService) GetUserAvatarUrl(userID string, username string) (string, error) {
 	color := colorFromUUID(userID)
 	avatar := fmt.Sprintf(
-		"https://ui-avatars.com/api/?name=%s&background=%s&rounded=true&size=128",
+		"https://ui-avatars.com/api/?name=%s&background=%s&rounded=true&size=%s",
 		username,
 		color,
+		"128",
 	)
 	return avatar, nil
 }
@@ -188,9 +170,9 @@ func colorFromUUID(uuid string) string {
 	g := hash[1]
 	b := hash[2]
 
-	r = clamp(r, 50, 200)
-	g = clamp(g, 50, 200)
-	b = clamp(b, 50, 200)
+	r = clamp(r, AvatarColorMin, AvatarColorMax)
+	g = clamp(g, AvatarColorMin, AvatarColorMax)
+	b = clamp(b, AvatarColorMin, AvatarColorMax)
 
 	return hex.EncodeToString([]byte{r, g, b})
 }
@@ -453,6 +435,12 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 
 	switch action {
 	case ActionParamAccept:
+		// 先更新缓存：添加好友关系
+		_ = s.friendCache.AddFriend(ctx, userID, friendID)
+		_ = s.friendCache.AddFriend(ctx, friendID, userID)
+		// 删除好友申请缓存
+		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
+
 		// 接受好友申请：在Friend表创建normal记录
 		friendQ := dao.Use(s.db).Friend
 		friendDo := friendQ.WithContext(ctx)
@@ -475,26 +463,20 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			return nil, fmt.Errorf("%s: %v", errDeleteFriendRequestFailed, err)
 		}
 
-		// 更新缓存：添加好友关系
-		_ = s.friendCache.AddFriend(ctx, userID, friendID)
-		_ = s.friendCache.AddFriend(ctx, friendID, userID)
-		// 删除好友申请缓存
-		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
-
 		return &dto.AddFriendResponse{
 			FriendID: friendID,
 			Status:   FriendStatusNormal,
 		}, nil
 	case ActionParamReject:
+		// 先删除好友申请缓存
+		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
+
 		if _, err := requestDo.Where(
 			requestQ.SenderID.Eq(friendID),
 			requestQ.ReceiverID.Eq(userID),
 		).Update(requestQ.Status, FriendRequestStatusRejected); err != nil {
 			return nil, fmt.Errorf("%s: %v", errRejectFriendRequestFailed, err)
 		}
-
-		// 删除好友申请缓存
-		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
 
 		return &dto.AddFriendResponse{
 			FriendID: friendID,
@@ -529,6 +511,10 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 		return fmt.Errorf(errCannotDeleteNonNormalFriend)
 	}
 
+	// 先更新缓存：移除好友关系
+	_ = s.friendCache.RemoveFriend(ctx, userID, friendID)
+	_ = s.friendCache.RemoveFriend(ctx, friendID, userID)
+
 	// 更新状态为 removed
 	_, err = friendDo.Where(
 		friendQ.UserA.Eq(record.UserA),
@@ -538,10 +524,6 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 	if err != nil {
 		return fmt.Errorf("%s: %v", errDeleteFriendFailed, err)
 	}
-
-	// 更新缓存：移除好友关系
-	_ = s.friendCache.RemoveFriend(ctx, userID, friendID)
-	_ = s.friendCache.RemoveFriend(ctx, friendID, userID)
 
 	return nil
 }

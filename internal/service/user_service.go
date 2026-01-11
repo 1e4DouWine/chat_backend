@@ -1,6 +1,7 @@
 package service
 
 import (
+	"chat_backend/internal/cache"
 	"chat_backend/internal/dao"
 	"chat_backend/internal/dto"
 	"chat_backend/internal/model"
@@ -46,65 +47,128 @@ const (
 )
 
 type UserService struct {
-	db *gorm.DB
+	db          *gorm.DB
+	userCache   *cache.UserCacheManager
+	friendCache *cache.FriendCacheManager
 }
 
 func NewUserService(db *gorm.DB) *UserService {
 	return &UserService{
-		db: db,
+		db:          db,
+		userCache:   cache.NewUserCacheManager(),
+		friendCache: cache.NewFriendCacheManager(),
 	}
 }
 
 // GetMe 获取自己的资料
 func (s *UserService) GetMe(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
-	avatarUrl, err := s.GetUserAvatarUrl(userID, username)
+	// 先尝试从缓存获取
+	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.ID.Eq(id)).First()
+		if err != nil {
+			return nil, err
+		}
+		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
+		if err != nil {
+			return nil, err
+		}
+		return &cache.UserInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Avatar:   avatarUrl,
+		}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
+
 	return &dto.UserInfoResponse{
-		UserID:   userID,
-		Username: username,
-		Avatar:   avatarUrl,
+		UserID:   userInfo.UserID,
+		Username: userInfo.Username,
+		Avatar:   userInfo.Avatar,
 	}, nil
 }
 
 // GetUserInfo 获取用户资料
 func (s *UserService) GetUserInfo(ctx context.Context, userID string, username string) (*dto.UserInfoResponse, error) {
-	avatarUrl, err := s.GetUserAvatarUrl(userID, username)
+	// 先尝试从缓存获取
+	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.ID.Eq(id)).First()
+		if err != nil {
+			return nil, err
+		}
+		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
+		if err != nil {
+			return nil, err
+		}
+		return &cache.UserInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Avatar:   avatarUrl,
+		}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
+
 	return &dto.UserInfoResponse{
-		UserID:   userID,
-		Username: username,
-		Avatar:   avatarUrl,
+		UserID:   userInfo.UserID,
+		Username: userInfo.Username,
+		Avatar:   userInfo.Avatar,
 	}, nil
 }
 
 // GetUsernameByUserID 通过 userID 查询 username
 func (s *UserService) GetUsernameByUserID(ctx context.Context, userID string) (string, error) {
-	q := dao.Use(s.db).User
-	do := q.WithContext(ctx)
-
-	user, err := do.Where(q.ID.Eq(userID)).First()
+	// 先尝试从缓存获取
+	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.ID.Eq(id)).First()
+		if err != nil {
+			return nil, err
+		}
+		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
+		if err != nil {
+			return nil, err
+		}
+		return &cache.UserInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Avatar:   avatarUrl,
+		}, nil
+	})
 	if err != nil {
 		return "", err
 	}
-
-	return user.Username, nil
+	return userInfo.Username, nil
 }
 
 // GetUserIDByUsername 通过 username 查询 userID
 func (s *UserService) GetUserIDByUsername(ctx context.Context, username string) (string, error) {
-	q := dao.Use(s.db).User
-	do := q.WithContext(ctx)
-
-	user, err := do.Where(q.Username.Eq(username)).First()
+	// 先尝试从缓存获取
+	userID, err := s.userCache.GetOrLoadUserIDByUsername(ctx, username, func(name string) (string, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.Username.Eq(name)).First()
+		if err != nil {
+			return "", err
+		}
+		// 缓存用户信息
+		avatarUrl, err := s.GetUserAvatarUrl(user.ID, user.Username)
+		if err == nil {
+			_ = s.userCache.SetUserInfo(ctx, user.ID, user.Username, avatarUrl)
+		}
+		return user.ID, nil
+	})
 	if err != nil {
 		return "", err
 	}
-
-	return user.ID, nil
+	return userID, nil
 }
 
 // GetUserAvatarUrl 获取用户头像
@@ -144,7 +208,13 @@ func clamp(v, min, max byte) byte {
 
 // SendAddFriendRequest 发送添加好友申请
 func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, friendID string) (*dto.AddFriendResponse, error) {
-	// 1. 检查 Friend 表是否已存在好友关系
+	// 1. 先从缓存检查是否已经是好友
+	isFriend, err := s.friendCache.IsFriend(ctx, userID, friendID)
+	if err == nil && isFriend {
+		return nil, fmt.Errorf(errAlreadyFriends)
+	}
+
+	// 2. 检查 Friend 表是否已存在好友关系（缓存未命中时）
 	friendQ := dao.Use(s.db).Friend
 	friendDo := friendQ.WithContext(ctx)
 	existingFriend, err := friendDo.Where(
@@ -155,6 +225,9 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 		friendQ.UserB.Eq(userID),
 	).First()
 	if err == nil && existingFriend.Status == FriendStatusNormal {
+		// 更新缓存
+		_ = s.friendCache.AddFriend(ctx, userID, friendID)
+		_ = s.friendCache.AddFriend(ctx, friendID, userID)
 		return nil, fmt.Errorf(errAlreadyFriends)
 	}
 
@@ -198,6 +271,20 @@ func (s *UserService) SendAddFriendRequest(ctx context.Context, userID string, f
 		return nil, err
 	}
 
+	// 4. 获取发送者信息并缓存好友申请
+	senderInfo, err := s.GetUserInfo(ctx, userID, "")
+	if err != nil {
+		return nil, err
+	}
+	friendRequest := &cache.FriendInfo{
+		UserID:   userID,
+		Username: senderInfo.Username,
+		Avatar:   senderInfo.Avatar,
+		Status:   FriendRequestStatusPending,
+		CreateAt: record.CreatedAt.Unix(),
+	}
+	_ = s.friendCache.AddFriendRequest(ctx, friendID, friendRequest)
+
 	return &dto.AddFriendResponse{
 		FriendID: friendID,
 		Status:   FriendRequestStatusPending,
@@ -219,13 +306,30 @@ func (s *UserService) GetFriendList(ctx context.Context, userID string, status s
 }
 
 func (s *UserService) getPendingFriendRequests(ctx context.Context, userID string) ([]*dto.FriendInfoResponse, error) {
+	// 先尝试从缓存获取
+	cachedRequests, err := s.friendCache.GetFriendRequests(ctx, userID)
+	if err == nil && len(cachedRequests) > 0 {
+		responses := make([]*dto.FriendInfoResponse, 0, len(cachedRequests))
+		for _, req := range cachedRequests {
+			responses = append(responses, &dto.FriendInfoResponse{
+				UserID:   req.UserID,
+				Username: req.Username,
+				Avatar:   req.Avatar,
+				Status:   FriendRequestStatusPending,
+				CreateAt: req.CreateAt,
+			})
+		}
+		return responses, nil
+	}
+
+	// 缓存未命中，从数据库查询
 	requestQ := dao.Use(s.db).FriendRequest
 	requestDo := requestQ.WithContext(ctx)
 
 	expireTime := time.Now().AddDate(0, 0, -FriendRequestExpireDays)
 
 	var requests []model.FriendRequest
-	err := requestDo.Where(
+	err = requestDo.Where(
 		requestQ.ReceiverID.Eq(userID),
 		requestQ.Status.Eq(FriendRequestStatusPending),
 		requestQ.CreatedAt.Gt(expireTime),
@@ -240,6 +344,8 @@ func (s *UserService) getPendingFriendRequests(ctx context.Context, userID strin
 	}
 
 	responses := make([]*dto.FriendInfoResponse, 0, len(requests))
+	friendInfos := make([]*cache.FriendInfo, 0, len(requests))
+
 	for _, r := range requests {
 		username, err := s.GetUsernameByUserID(ctx, r.SenderID)
 		if err != nil {
@@ -257,7 +363,19 @@ func (s *UserService) getPendingFriendRequests(ctx context.Context, userID strin
 			Status:   r.Status,
 			CreateAt: r.CreatedAt.Unix(),
 		})
+
+		// 添加到缓存
+		friendInfos = append(friendInfos, &cache.FriendInfo{
+			UserID:   r.SenderID,
+			Username: username,
+			Avatar:   avatarUrl,
+			Status:   r.Status,
+			CreateAt: r.CreatedAt.Unix(),
+		})
 	}
+
+	// 批量缓存好友申请
+	_ = s.friendCache.BatchAddFriendRequests(ctx, userID, friendInfos)
 
 	return responses, nil
 }
@@ -357,6 +475,12 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 			return nil, fmt.Errorf("%s: %v", errDeleteFriendRequestFailed, err)
 		}
 
+		// 更新缓存：添加好友关系
+		_ = s.friendCache.AddFriend(ctx, userID, friendID)
+		_ = s.friendCache.AddFriend(ctx, friendID, userID)
+		// 删除好友申请缓存
+		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
+
 		return &dto.AddFriendResponse{
 			FriendID: friendID,
 			Status:   FriendStatusNormal,
@@ -368,6 +492,9 @@ func (s *UserService) ProcessFriendRequest(ctx context.Context, userID string, f
 		).Update(requestQ.Status, FriendRequestStatusRejected); err != nil {
 			return nil, fmt.Errorf("%s: %v", errRejectFriendRequestFailed, err)
 		}
+
+		// 删除好友申请缓存
+		_ = s.friendCache.RemoveFriendRequest(ctx, userID, friendID)
 
 		return &dto.AddFriendResponse{
 			FriendID: friendID,
@@ -412,11 +539,22 @@ func (s *UserService) DeleteFriend(ctx context.Context, userID string, friendID 
 		return fmt.Errorf("%s: %v", errDeleteFriendFailed, err)
 	}
 
+	// 更新缓存：移除好友关系
+	_ = s.friendCache.RemoveFriend(ctx, userID, friendID)
+	_ = s.friendCache.RemoveFriend(ctx, friendID, userID)
+
 	return nil
 }
 
 // IsFriend 检查两个用户是否是好友关系
 func (s *UserService) IsFriend(ctx context.Context, userID string, targetUserID string) (bool, error) {
+	// 先从缓存检查
+	isFriend, err := s.friendCache.IsFriend(ctx, userID, targetUserID)
+	if err == nil && isFriend {
+		return true, nil
+	}
+
+	// 缓存未命中，从数据库查询
 	friendQ := dao.Use(s.db).Friend
 	friendDo := friendQ.WithContext(ctx)
 
@@ -434,5 +572,12 @@ func (s *UserService) IsFriend(ctx context.Context, userID string, targetUserID 
 		return false, err
 	}
 
-	return count > 0, nil
+	isFriend = count > 0
+	// 更新缓存
+	if isFriend {
+		_ = s.friendCache.AddFriend(ctx, userID, targetUserID)
+		_ = s.friendCache.AddFriend(ctx, targetUserID, userID)
+	}
+
+	return isFriend, nil
 }

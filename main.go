@@ -100,8 +100,11 @@ func startServer(cfg *config.Config) {
 	e.Use(middleware.RecoverMiddleware())
 	e.Use(middleware.LoggerMiddleware())
 
+	// 初始化限流中间件
+	rateLimiter := middleware.NewRateLimiter(database.GetRedis())
+
 	// 初始化路由
-	router.InitRouter(e)
+	router.InitRouter(e, rateLimiter)
 
 	// 示例路由
 	e.GET("/", func(c echo.Context) error {

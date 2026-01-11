@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"chat_backend/internal/cache"
 	"chat_backend/pkg/logger"
 	"context"
 	"encoding/json"
@@ -27,6 +28,8 @@ type UserConnection struct {
 	mu sync.RWMutex
 	// closed 连接关闭状态标记
 	closed bool
+	// onlineStatusManager 在线状态管理器
+	onlineStatusManager *cache.OnlineStatusManager
 }
 
 // NewUserConnection 创建新的用户连接实例
@@ -38,12 +41,13 @@ type UserConnection struct {
 //   - *UserConnection: 初始化的用户连接对象
 func NewUserConnection(userID string, conn *websocket.Conn) *UserConnection {
 	return &UserConnection{
-		UserID:      userID,
-		Conn:        conn,
-		ConnectedAt: time.Now(),
-		SendChan:    make(chan WSMessage, 256), // 带缓冲的发送通道，容量256
-		CloseChan:   make(chan struct{}),       // 无缓冲关闭通道
-		closed:      false,                     // 初始状态为未关闭
+		UserID:              userID,
+		Conn:                conn,
+		ConnectedAt:         time.Now(),
+		SendChan:            make(chan WSMessage, 256), // 带缓冲的发送通道，容量256
+		CloseChan:           make(chan struct{}),       // 无缓冲关闭通道
+		closed:              false,                     // 初始状态为未关闭
+		onlineStatusManager: cache.NewOnlineStatusManager(),
 	}
 }
 
@@ -170,6 +174,11 @@ func (uc *UserConnection) WritePump(ctx context.Context) {
 			}
 			cancel()
 			logger.GetLogger().Infow("Ping sent successfully", "user_id", uc.UserID)
+
+			// 更新 Redis 在线状态（心跳）
+			if err := uc.onlineStatusManager.Heartbeat(ctx, uc.UserID); err != nil {
+				logger.GetLogger().Errorw("Failed to update heartbeat in Redis", "user_id", uc.UserID, "error", err)
+			}
 		}
 	}
 }

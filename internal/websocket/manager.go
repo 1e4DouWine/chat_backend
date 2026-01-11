@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"chat_backend/internal/cache"
 	"chat_backend/pkg/logger"
+	"context"
 	"sync"
 	"time"
 )
@@ -13,6 +15,8 @@ type ConnectionManager struct {
 	connections map[string]*UserConnection
 	// mu 读写锁，用于保护connections的并发访问
 	mu sync.RWMutex
+	// onlineStatusManager 在线状态管理器
+	onlineStatusManager *cache.OnlineStatusManager
 }
 
 // 单例模式相关变量
@@ -30,7 +34,8 @@ var (
 func GetConnectionManager() *ConnectionManager {
 	once.Do(func() {
 		instance = &ConnectionManager{
-			connections: make(map[string]*UserConnection),
+			connections:         make(map[string]*UserConnection),
+			onlineStatusManager: cache.NewOnlineStatusManager(),
 		}
 	})
 	return instance
@@ -53,6 +58,13 @@ func (cm *ConnectionManager) AddConnection(userID string, conn *UserConnection) 
 
 	// 存储新连接
 	cm.connections[userID] = conn
+
+	// 更新 Redis 在线状态
+	ctx := context.Background()
+	if err := cm.onlineStatusManager.SetOnline(ctx, userID); err != nil {
+		logger.GetLogger().Errorw("Failed to set online status in Redis", "user_id", userID, "error", err)
+	}
+
 	logger.GetLogger().Infow("Connection added", "user_id", userID, "total_connections", len(cm.connections))
 }
 
@@ -68,6 +80,13 @@ func (cm *ConnectionManager) RemoveConnection(userID string) {
 		conn.Close()
 		// 从映射表中删除
 		delete(cm.connections, userID)
+
+		// 更新 Redis 在线状态
+		ctx := context.Background()
+		if err := cm.onlineStatusManager.SetOffline(ctx, userID); err != nil {
+			logger.GetLogger().Errorw("Failed to set offline status in Redis", "user_id", userID, "error", err)
+		}
+
 		logger.GetLogger().Infow("Connection removed", "user_id", userID, "total_connections", len(cm.connections))
 	}
 }
@@ -75,6 +94,7 @@ func (cm *ConnectionManager) RemoveConnection(userID string) {
 // GetConnection 获取指定用户的连接
 // 参数:
 //   - userID: 用户唯一标识符
+//
 // 返回:
 //   - *UserConnection: 用户连接对象
 //   - bool: 是否存在该连接
@@ -89,6 +109,7 @@ func (cm *ConnectionManager) GetConnection(userID string) (*UserConnection, bool
 // IsOnline 检查用户是否在线
 // 参数:
 //   - userID: 用户唯一标识符
+//
 // 返回:
 //   - bool: 用户是否在线
 func (cm *ConnectionManager) IsOnline(userID string) bool {
@@ -100,13 +121,25 @@ func (cm *ConnectionManager) IsOnline(userID string) bool {
 		return false
 	}
 	// 还需要检查连接是否已关闭
-	return !conn.IsClosed()
+	if !conn.IsClosed() {
+		return true
+	}
+
+	// 同时检查 Redis 在线状态
+	ctx := context.Background()
+	isOnline, err := cm.onlineStatusManager.IsOnline(ctx, userID)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to check online status in Redis", "user_id", userID, "error", err)
+		return false
+	}
+	return isOnline
 }
 
 // SendToUser 向指定用户发送消息
 // 参数:
 //   - userID: 目标用户ID
 //   - msg: 要发送的消息
+//
 // 返回:
 //   - bool: 是否成功发送
 func (cm *ConnectionManager) SendToUser(userID string, msg WSMessage) bool {
@@ -155,30 +188,44 @@ func (cm *ConnectionManager) Broadcast(msg WSMessage, excludeUserIDs ...string) 
 // 返回:
 //   - int: 在线用户数量
 func (cm *ConnectionManager) GetOnlineUserCount() int {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	count := 0
-	for _, conn := range cm.connections {
-		if !conn.IsClosed() {
-			count++
+	// 从 Redis 获取在线用户数量（支持分布式）
+	ctx := context.Background()
+	count, err := cm.onlineStatusManager.GetOnlineUserCount(ctx)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to get online user count from Redis", "error", err)
+		// 降级到本地计数
+		cm.mu.RLock()
+		defer cm.mu.RUnlock()
+		localCount := 0
+		for _, conn := range cm.connections {
+			if !conn.IsClosed() {
+				localCount++
+			}
 		}
+		return int(localCount)
 	}
-	return count
+	return int(count)
 }
 
 // GetOnlineUserIDs 获取所有在线用户的ID列表
 // 返回:
 //   - []string: 在线用户ID列表
 func (cm *ConnectionManager) GetOnlineUserIDs() []string {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	userIDs := make([]string, 0, len(cm.connections))
-	for userID, conn := range cm.connections {
-		if !conn.IsClosed() {
-			userIDs = append(userIDs, userID)
+	// 从 Redis 获取在线用户ID列表（支持分布式）
+	ctx := context.Background()
+	userIDs, err := cm.onlineStatusManager.GetOnlineUserIDs(ctx)
+	if err != nil {
+		logger.GetLogger().Errorw("Failed to get online user IDs from Redis", "error", err)
+		// 降级到本地列表
+		cm.mu.RLock()
+		defer cm.mu.RUnlock()
+		localUserIDs := make([]string, 0, len(cm.connections))
+		for userID, conn := range cm.connections {
+			if !conn.IsClosed() {
+				localUserIDs = append(localUserIDs, userID)
+			}
 		}
+		return localUserIDs
 	}
 	return userIDs
 }

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"chat_backend/internal/cache"
+	"chat_backend/internal/config"
 	"chat_backend/internal/dao"
 	"chat_backend/internal/dto"
 	"chat_backend/internal/middleware"
@@ -41,12 +43,16 @@ var (
 
 // AuthService 认证服务
 type AuthService struct {
-	db *gorm.DB
+	db             *gorm.DB
+	sessionManager *cache.SessionManager
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService(db *gorm.DB) *AuthService {
-	return &AuthService{db: db}
+	return &AuthService{
+		db:             db,
+		sessionManager: cache.NewSessionManager(),
+	}
 }
 
 // Register 用户注册
@@ -86,6 +92,19 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, fmt.Errorf("%s: %w", errFailedToGenerateRefresh, err)
 	}
 
+	// 将 Refresh Token 存储到 Redis
+	deviceInfo := map[string]string{
+		"device_id":   req.DeviceID,
+		"device_name": req.DeviceName,
+		"user_agent":  req.UserAgent,
+		"ip_address":  req.IPAddress,
+	}
+	cfg := config.GetConfig()
+	if err := s.sessionManager.StoreRefreshToken(ctx, user.ID, user.Username, refreshToken, time.Duration(cfg.JWT.RefreshExpiry)*time.Hour, deviceInfo); err != nil {
+		// Redis 存储失败不影响注册流程，记录日志即可
+		fmt.Printf("Warning: failed to store refresh token in redis: %v\n", err)
+	}
+
 	return &dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -118,6 +137,19 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 	refreshToken, err := middleware.GenerateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errFailedToGenerateRefresh, err)
+	}
+
+	// 将 Refresh Token 存储到 Redis
+	deviceInfo := map[string]string{
+		"device_id":   req.DeviceID,
+		"device_name": req.DeviceName,
+		"user_agent":  req.UserAgent,
+		"ip_address":  req.IPAddress,
+	}
+	cfg := config.GetConfig()
+	if err := s.sessionManager.StoreRefreshToken(ctx, user.ID, user.Username, refreshToken, time.Duration(cfg.JWT.RefreshExpiry)*time.Hour, deviceInfo); err != nil {
+		// Redis 存储失败不影响登录流程，记录日志即可
+		fmt.Printf("Warning: failed to store refresh token in redis: %v\n", err)
 	}
 
 	return &dto.AuthResponse{
@@ -157,6 +189,12 @@ func (s *AuthService) RefreshToken(ctx context.Context, req dto.RefreshRequest) 
 		return nil, errors.New(errInvalidRefreshToken)
 	}
 
+	// 验证 Refresh Token 是否在 Redis 中存在
+	_, err = s.sessionManager.ValidateRefreshToken(ctx, userID, req.RefreshToken)
+	if err != nil {
+		return nil, errors.New(errInvalidRefreshToken)
+	}
+
 	// 查找用户
 	q := dao.Use(s.db).User
 	do := q.WithContext(ctx)
@@ -171,9 +209,34 @@ func (s *AuthService) RefreshToken(ctx context.Context, req dto.RefreshRequest) 
 		return nil, fmt.Errorf("%s: %w", errFailedToGenerateToken, err)
 	}
 
+	// 可选：生成新的 Refresh Token 并更新 Redis
+	// newRefreshToken, err := middleware.GenerateRefreshToken(user.ID)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("%s: %w", errFailedToGenerateRefresh, err)
+	// }
+	// if err := s.sessionManager.RefreshSession(ctx, userID, req.RefreshToken, newRefreshToken, time.Duration(cfg.JWT.RefreshExpiry)*time.Hour); err != nil {
+	// 	fmt.Printf("Warning: failed to refresh session in redis: %v\n", err)
+	// }
+
 	return &dto.AuthResponse{
 		AccessToken: accessToken,
-		ExpiresIn:   int64(tokenExpireTime.Seconds()),
-		TokenType:   tokenTypeBearer,
+		// RefreshToken: newRefreshToken, // 如果需要更新 Refresh Token，取消注释
+		ExpiresIn: int64(tokenExpireTime.Seconds()),
+		TokenType: tokenTypeBearer,
 	}, nil
+}
+
+// RevokeToken 撤销 Refresh Token
+func (s *AuthService) RevokeToken(ctx context.Context, userID, refreshToken string) error {
+	return s.sessionManager.RevokeRefreshToken(ctx, userID, refreshToken)
+}
+
+// RevokeAllUserTokens 撤销用户的所有会话
+func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID string) error {
+	return s.sessionManager.RevokeAllUserSessions(ctx, userID)
+}
+
+// GetUserSessions 获取用户的所有活跃会话
+func (s *AuthService) GetUserSessions(ctx context.Context, userID string) ([]cache.SessionInfo, error) {
+	return s.sessionManager.GetUserSessions(ctx, userID)
 }

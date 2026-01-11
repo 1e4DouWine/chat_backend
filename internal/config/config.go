@@ -91,7 +91,7 @@ func GetConfig() *Config {
 
 // GetDSN 获取数据库连接字符串
 func (c *DatabaseConfig) GetDSN() string {
-	return fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=require&channel_binding=require",
+	return fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?sslmode=disable",
 		c.User, c.Password, c.Host, c.Port, c.DBName)
 }
 

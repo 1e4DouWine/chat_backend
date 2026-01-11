@@ -9,17 +9,17 @@ import (
 )
 
 // InitRouter 初始化所有路由
-func InitRouter(e *echo.Echo) {
+func InitRouter(e *echo.Echo, rateLimiter *middleware.RateLimiter) {
 	// API v1 路由组
 	apiV1 := e.Group("/api/v1")
 
 	// 注册 hello 相关路由
 	helloRoutes(apiV1)
 
-	authRoutes(apiV1)
-	userRoutes(apiV1)
-	groupRoutes(apiV1)
-	messageRoutes(apiV1)
+	authRoutes(apiV1, rateLimiter)
+	userRoutes(apiV1, rateLimiter)
+	groupRoutes(apiV1, rateLimiter)
+	messageRoutes(apiV1, rateLimiter)
 	wsRoutes(e)
 }
 
@@ -29,18 +29,20 @@ func helloRoutes(api *echo.Group) {
 }
 
 // authRoutes 注册认证相关路由
-func authRoutes(api *echo.Group) {
+func authRoutes(api *echo.Group, rateLimiter *middleware.RateLimiter) {
 	// 公共路由（不需要认证）
 	auth := api.Group("/auth")
+	auth.Use(middleware.RateLimitMiddleware(rateLimiter, middleware.AuthRateLimit))
 	auth.POST("/register", v1.Register)
 	auth.POST("/login", v1.Login)
 	auth.POST("/refresh", v1.RefreshToken)
 }
 
 // userRoutes 用户相关路由
-func userRoutes(api *echo.Group) {
+func userRoutes(api *echo.Group, rateLimiter *middleware.RateLimiter) {
 	user := api.Group("/user")
 	user.Use(middleware.JWTMiddleware())
+	user.Use(middleware.RateLimitMiddleware(rateLimiter, middleware.GeneralRateLimit))
 	user.GET("/me", v1.GetMe)
 
 	user.GET("/search", v1.SearchUser)
@@ -52,9 +54,10 @@ func userRoutes(api *echo.Group) {
 }
 
 // groupRoutes 群组相关路由
-func groupRoutes(api *echo.Group) {
+func groupRoutes(api *echo.Group, rateLimiter *middleware.RateLimiter) {
 	group := api.Group("/group")
 	group.Use(middleware.JWTMiddleware())
+	group.Use(middleware.RateLimitMiddleware(rateLimiter, middleware.GeneralRateLimit))
 
 	// 创建群组
 	group.POST("", v1.CreateGroup)
@@ -110,9 +113,10 @@ func wsRoutes(e *echo.Echo) {
 }
 
 // messageRoutes 消息相关路由
-func messageRoutes(api *echo.Group) {
+func messageRoutes(api *echo.Group, rateLimiter *middleware.RateLimiter) {
 	message := api.Group("/message")
 	message.Use(middleware.JWTMiddleware())
+	message.Use(middleware.RateLimitMiddleware(rateLimiter, middleware.MessageRateLimit))
 
 	// 获取会话列表
 	message.GET("/conversations", v1.GetConversationList)

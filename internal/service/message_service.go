@@ -1,6 +1,7 @@
 package service
 
 import (
+	"chat_backend/internal/cache"
 	"chat_backend/internal/dao"
 	"chat_backend/internal/dto"
 	"chat_backend/internal/model"
@@ -16,12 +17,18 @@ const (
 )
 
 type MessageService struct {
-	db *gorm.DB
+	db                *gorm.DB
+	messageCache      *cache.MessageCacheManager
+	conversationCache *cache.ConversationCacheManager
+	userCache         *cache.UserCacheManager
 }
 
 func NewMessageService(db *gorm.DB) *MessageService {
 	return &MessageService{
-		db: db,
+		db:                db,
+		messageCache:      cache.NewMessageCacheManager(),
+		conversationCache: cache.NewConversationCacheManager(),
+		userCache:         cache.NewUserCacheManager(),
 	}
 }
 
@@ -30,6 +37,35 @@ func (s *MessageService) GetPrivateMessages(ctx context.Context, userID string, 
 		limit = 20
 	}
 
+	// 先尝试从缓存获取消息
+	cachedMessages, err := s.messageCache.GetCachedPrivateMessages(ctx, userID, targetUserID, limit)
+	if err == nil && len(cachedMessages) > 0 {
+		// 转换为响应格式
+		var messageResponses []dto.MessageResponse
+		for _, msg := range cachedMessages {
+			fromUser, _ := s.getUserInfoFromCache(ctx, msg.FromUserID)
+			targetUser, _ := s.getUserInfoFromCache(ctx, msg.TargetID)
+
+			messageResponses = append(messageResponses, dto.MessageResponse{
+				MessageID:  msg.MessageID,
+				FromUserID: msg.FromUserID,
+				TargetID:   msg.TargetID,
+				Type:       msg.Type,
+				Content:    msg.Content,
+				CreatedAt:  msg.CreatedAt,
+				FromUser:   fromUser,
+				TargetUser: targetUser,
+			})
+		}
+
+		return &dto.GetMessagesResponse{
+			Messages:   messageResponses,
+			NextCursor: "",
+			HasMore:    false,
+		}, nil
+	}
+
+	// 缓存未命中，从数据库查询
 	q := dao.Use(s.db).Message
 	do := q.WithContext(ctx)
 
@@ -75,6 +111,17 @@ func (s *MessageService) GetPrivateMessages(ctx context.Context, userID string, 
 			FromUser:   fromUser,
 			TargetUser: targetUser,
 		})
+
+		// 缓存消息（不包含用户信息，因为用户信息是动态的）
+		cachedMsg := &cache.CachedMessage{
+			MessageID:  msg.ID,
+			FromUserID: msg.FromUserID,
+			TargetID:   msg.TargetID,
+			Type:       string(msg.Type),
+			Content:    msg.Content,
+			CreatedAt:  msg.CreatedAt,
+		}
+		_ = s.messageCache.CachePrivateMessage(ctx, userID, targetUserID, cachedMsg)
 	}
 
 	if len(messages) == limit {
@@ -94,6 +141,35 @@ func (s *MessageService) GetGroupMessages(ctx context.Context, groupID string, l
 		limit = 20
 	}
 
+	// 先尝试从缓存获取消息
+	cachedMessages, err := s.messageCache.GetCachedGroupMessages(ctx, groupID, limit)
+	if err == nil && len(cachedMessages) > 0 {
+		// 转换为响应格式
+		var messageResponses []dto.MessageResponse
+		for _, msg := range cachedMessages {
+			fromUser, _ := s.getUserInfoFromCache(ctx, msg.FromUserID)
+			groupInfo, _ := s.getGroupInfo(ctx, msg.TargetID)
+
+			messageResponses = append(messageResponses, dto.MessageResponse{
+				MessageID:   msg.MessageID,
+				FromUserID:  msg.FromUserID,
+				TargetID:    msg.TargetID,
+				Type:        msg.Type,
+				Content:     msg.Content,
+				CreatedAt:   msg.CreatedAt,
+				FromUser:    fromUser,
+				TargetGroup: groupInfo,
+			})
+		}
+
+		return &dto.GetMessagesResponse{
+			Messages:   messageResponses,
+			NextCursor: "",
+			HasMore:    false,
+		}, nil
+	}
+
+	// 缓存未命中，从数据库查询
 	q := dao.Use(s.db).Message
 	do := q.WithContext(ctx)
 
@@ -132,6 +208,17 @@ func (s *MessageService) GetGroupMessages(ctx context.Context, groupID string, l
 			FromUser:    fromUser,
 			TargetGroup: groupInfo,
 		})
+
+		// 缓存消息（不包含用户信息，因为用户信息是动态的）
+		cachedMsg := &cache.CachedMessage{
+			MessageID:  msg.ID,
+			FromUserID: msg.FromUserID,
+			TargetID:   msg.TargetID,
+			Type:       string(msg.Type),
+			Content:    msg.Content,
+			CreatedAt:  msg.CreatedAt,
+		}
+		_ = s.messageCache.CacheGroupMessage(ctx, groupID, cachedMsg)
 	}
 
 	if len(messages) == limit {
@@ -147,20 +234,41 @@ func (s *MessageService) GetGroupMessages(ctx context.Context, groupID string, l
 }
 
 func (s *MessageService) getUserInfo(ctx context.Context, userID string) (*dto.UserInfo, error) {
-	q := dao.Use(s.db).User
-	do := q.WithContext(ctx)
-
-	user, err := do.Where(q.ID.Eq(userID)).First()
+	// 先尝试从缓存获取
+	userInfo, err := s.userCache.GetOrLoadUserInfo(ctx, userID, func(id string) (*cache.UserInfo, error) {
+		q := dao.Use(s.db).User
+		do := q.WithContext(ctx)
+		user, err := do.Where(q.ID.Eq(id)).First()
+		if err != nil {
+			return nil, err
+		}
+		return &cache.UserInfo{
+			UserID:   user.ID,
+			Username: user.Username,
+			Avatar:   s.generateAvatarUrl(user.ID, user.Username),
+		}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	avatarUrl := s.generateAvatarUrl(user.ID, user.Username)
+	return &dto.UserInfo{
+		UserID:   userInfo.UserID,
+		Username: userInfo.Username,
+		Avatar:   userInfo.Avatar,
+	}, nil
+}
+
+func (s *MessageService) getUserInfoFromCache(ctx context.Context, userID string) (*dto.UserInfo, error) {
+	userInfo, err := s.userCache.GetUserInfo(ctx, userID)
+	if err != nil || userInfo == nil {
+		return nil, err
+	}
 
 	return &dto.UserInfo{
-		UserID:   user.ID,
-		Username: user.Username,
-		Avatar:   avatarUrl,
+		UserID:   userInfo.UserID,
+		Username: userInfo.Username,
+		Avatar:   userInfo.Avatar,
 	}, nil
 }
 
@@ -228,7 +336,32 @@ func (s *MessageService) SendPrivateMessage(ctx context.Context, fromUserID stri
 		return nil, err
 	}
 
+	// 更新会话缓存（发送方）
+	_ = s.updatePrivateConversationCache(ctx, fromUserID, targetUserID, message)
+	// 更新会话缓存（接收方）
+	_ = s.updatePrivateConversationCache(ctx, targetUserID, fromUserID, message)
+
 	return message, nil
+}
+
+// updatePrivateConversationCache 更新私聊会话缓存
+func (s *MessageService) updatePrivateConversationCache(ctx context.Context, userID, partnerID string, message *model.Message) error {
+	// 获取对方用户信息
+	partnerInfo, err := s.getUserInfo(ctx, partnerID)
+	if err != nil {
+		return err
+	}
+
+	// 更新会话缓存
+	conv := &cache.PrivateConversation{
+		UserID:      partnerID,
+		Username:    partnerInfo.Username,
+		Avatar:      partnerInfo.Avatar,
+		LastContent: message.Content,
+		LastTime:    message.CreatedAt,
+	}
+
+	return s.conversationCache.SetPrivateConversation(ctx, userID, conv)
 }
 
 func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string, groupID string, content string, messageID string, recipientIDs []string, onlineUserIDs map[string]bool) (*model.Message, error) {
@@ -281,7 +414,42 @@ func (s *MessageService) SendGroupMessage(ctx context.Context, fromUserID string
 		return nil, err
 	}
 
+	// 更新会话缓存（所有群成员）
+	_ = s.updateGroupConversationCache(ctx, groupID, message, recipientIDs, fromUserID)
+
 	return message, nil
+}
+
+// updateGroupConversationCache 更新群聊会话缓存
+func (s *MessageService) updateGroupConversationCache(ctx context.Context, groupID string, message *model.Message, recipientIDs []string, senderID string) error {
+	// 获取群组信息
+	groupInfo, err := s.getGroupInfo(ctx, groupID)
+	if err != nil {
+		return err
+	}
+
+	// 获取发送者信息
+	senderInfo, err := s.getUserInfo(ctx, senderID)
+	if err != nil {
+		return err
+	}
+
+	// 更新所有群成员的会话缓存
+	conv := &cache.GroupConversation{
+		GroupID:        groupID,
+		GroupName:      groupInfo.Name,
+		LastContent:    message.Content,
+		LastTime:       message.CreatedAt,
+		LastSenderID:   senderID,
+		LastSenderName: senderInfo.Username,
+	}
+
+	// 批量更新所有群成员的会话缓存
+	for _, recipientID := range recipientIDs {
+		_ = s.conversationCache.SetGroupConversation(ctx, recipientID, conv)
+	}
+
+	return nil
 }
 
 func (s *MessageService) GetUndeliveredMessages(ctx context.Context, userID string) ([]dto.MessageResponse, error) {
@@ -360,6 +528,44 @@ func (s *MessageService) MarkMessagesAsDelivered(ctx context.Context, userID str
 }
 
 func (s *MessageService) GetConversationList(ctx context.Context, userID string) (*dto.GetConversationListResponse, error) {
+	// 先尝试从缓存获取会话列表
+	allConvs, err := s.conversationCache.GetAllConversations(ctx, userID)
+	if err == nil && len(allConvs) > 0 {
+		privateConvs := make([]dto.PrivateConversation, 0)
+		groupConvs := make([]dto.GroupConversation, 0)
+
+		for field, conv := range allConvs {
+			if len(field) > 8 && field[:8] == "private:" {
+				if privConv, ok := conv.(cache.PrivateConversation); ok {
+					privateConvs = append(privateConvs, dto.PrivateConversation{
+						UserID:      privConv.UserID,
+						Username:    privConv.Username,
+						Avatar:      privConv.Avatar,
+						LastContent: privConv.LastContent,
+						LastTime:    privConv.LastTime,
+					})
+				}
+			} else if len(field) > 6 && field[:6] == "group:" {
+				if grpConv, ok := conv.(cache.GroupConversation); ok {
+					groupConvs = append(groupConvs, dto.GroupConversation{
+						GroupID:        grpConv.GroupID,
+						GroupName:      grpConv.GroupName,
+						LastContent:    grpConv.LastContent,
+						LastTime:       grpConv.LastTime,
+						LastSenderID:   grpConv.LastSenderID,
+						LastSenderName: grpConv.LastSenderName,
+					})
+				}
+			}
+		}
+
+		return &dto.GetConversationListResponse{
+			PrivateConversations: privateConvs,
+			GroupConversations:   groupConvs,
+		}, nil
+	}
+
+	// 缓存未命中，从数据库查询
 	privateConversations, err := s.getPrivateConversations(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -368,6 +574,28 @@ func (s *MessageService) GetConversationList(ctx context.Context, userID string)
 	groupConversations, err := s.getGroupConversations(ctx, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// 缓存会话列表
+	for _, conv := range privateConversations {
+		_ = s.conversationCache.SetPrivateConversation(ctx, userID, &cache.PrivateConversation{
+			UserID:      conv.UserID,
+			Username:    conv.Username,
+			Avatar:      conv.Avatar,
+			LastContent: conv.LastContent,
+			LastTime:    conv.LastTime,
+		})
+	}
+
+	for _, conv := range groupConversations {
+		_ = s.conversationCache.SetGroupConversation(ctx, userID, &cache.GroupConversation{
+			GroupID:        conv.GroupID,
+			GroupName:      conv.GroupName,
+			LastContent:    conv.LastContent,
+			LastTime:       conv.LastTime,
+			LastSenderID:   conv.LastSenderID,
+			LastSenderName: conv.LastSenderName,
+		})
 	}
 
 	return &dto.GetConversationListResponse{
